@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "comfyui-batch-render"
-version = "0.1.0"
+version = "0.1.1"
 description = "Batch-render anime/illustration images across base + scenario combinations on ComfyUI."
 readme = "README.md"
 requires-python = ">=3.10"
