@@ -13,11 +13,50 @@ const BRP_URL = "/batch-render";
 // or export an "API-format" file). See server/static/app.js (consumeCapture).
 const CAPTURE_KEY = "brp_captured_workflow";
 
-// "repeat" icon (Material-style), used for the DOM-fallback button.
-const REPEAT_SVG =
-  '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">' +
-  '<path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>' +
+// "layers" icon (Lucide). We reuse one source-of-truth path set for both:
+//   - the DOM-fallback button (inline SVG, see LAYERS_SVG), and
+//   - the ComfyUI menu/action-bar slots, whose `icon` field is a CSS *class*
+//     string (not markup) -- so we expose `BRP_ICON_CLASS`, a class we style
+//     with a mask-image of the same SVG, tinted via currentColor. This frees us
+//     from PrimeIcons without adding a font, CDN, or build step.
+const LAYERS_PATHS =
+  '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/>' +
+  '<path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>' +
+  '<path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>';
+
+const LAYERS_SVG =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  LAYERS_PATHS +
   "</svg>";
+
+const BRP_ICON_CLASS = "brp-layers-icon";
+
+// Inject the CSS class used by the menu/action-bar `icon` slots. Mask + a
+// currentColor background makes the SVG inherit the menu's text color, so it
+// matches PrimeIcons sizing/tinting. Idempotent.
+function ensureIconStyle() {
+  try {
+    if (document.getElementById("brp-icon-style")) return;
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      LAYERS_PATHS +
+      "</svg>";
+    const url = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+    const style = document.createElement("style");
+    style.id = "brp-icon-style";
+    style.textContent =
+      "." + BRP_ICON_CLASS + "{" +
+      "display:inline-block;width:1em;height:1em;" +
+      "background-color:currentColor;" +
+      "-webkit-mask:" + url + " center/contain no-repeat;" +
+      "mask:" + url + " center/contain no-repeat;}";
+    document.head.appendChild(style);
+  } catch (err) {
+    console.warn("[BatchRender] could not inject icon style:", err);
+  }
+}
 
 // Best-effort: snapshot the current graph in ComfyUI's API ("output") format
 // and stash it for the Batch Render tab. Any failure is non-fatal -- the UI
@@ -70,7 +109,7 @@ app.registerExtension({
     {
       id: "BatchRender.open",
       label: "Open Batch Render UI",
-      icon: "pi pi-replay",
+      icon: BRP_ICON_CLASS,
       function: openBatchRender,
     },
   ],
@@ -81,7 +120,7 @@ app.registerExtension({
   actionBarButtons: [
     {
       id: "BatchRender.open.actionbar",
-      icon: "pi pi-replay",
+      icon: BRP_ICON_CLASS,
       tooltip: "Open the Batch Render UI",
       function: openBatchRender,
       onClick: openBatchRender,
@@ -89,6 +128,7 @@ app.registerExtension({
   ],
 
   async setup() {
+    ensureIconStyle();
     console.info(
       "[BatchRender] loaded. Use the top menu: 'Batch Render > Open Batch Render UI', " +
         "or open " + window.location.origin + BRP_URL + " directly."
@@ -103,7 +143,7 @@ app.registerExtension({
       if (!menu) return;
       const btn = document.createElement("button");
       btn.id = "brp-open-btn";
-      btn.innerHTML = REPEAT_SVG;
+      btn.innerHTML = LAYERS_SVG;
       btn.title = "Open the Batch Render UI";
       btn.setAttribute("aria-label", "Open the Batch Render UI");
       btn.style.cssText =
