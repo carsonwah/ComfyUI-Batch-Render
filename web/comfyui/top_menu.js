@@ -5,8 +5,13 @@
 // item). We also register a best-effort action-bar button and a DOM fallback so
 // a clickable entry shows up across frontend versions.
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 const BRP_URL = "/batch-render";
+
+// Websocket event (via ComfyUI's /ws) the Batch Render UI triggers when the
+// user clicks "Re-sync" -- our cue to push a fresh snapshot of the open canvas.
+const RECAPTURE_EVENT = "brp_recapture";
 
 // Workflow handoff to the Batch Render UI so the user never has to find or
 // export an "API-format" file. Two channels, in order of robustness:
@@ -68,6 +73,44 @@ function ensureIconStyle() {
 // Best-effort: snapshot the current graph in ComfyUI's API ("output") format
 // and stash it for the Batch Render tab. Any failure is non-fatal -- the UI
 // falls back to its manual template-path field.
+// Snapshot the open graph in ComfyUI's API ("output") format, or null if the
+// frontend can't produce one (no graph, old API, etc.).
+async function snapshotApiGraph() {
+  if (!app || typeof app.graphToPrompt !== "function") return null;
+  const prompt = await app.graphToPrompt();
+  const apiGraph = prompt && prompt.output;
+  if (
+    !apiGraph ||
+    typeof apiGraph !== "object" ||
+    Object.keys(apiGraph).length === 0
+  ) {
+    return null;
+  }
+  return apiGraph;
+}
+
+// Push a captured graph to the server slot. This is the cross-process channel:
+// the Batch Render UI (possibly in a different browser) reads it back. Returns
+// true on a 2xx response.
+async function pushCaptureToServer(apiGraph) {
+  try {
+    const res = await fetch(CAPTURE_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template: apiGraph,
+        source: "comfyui-canvas",
+        ts: Date.now(),
+      }),
+    });
+    if (!res.ok) console.warn("[BatchRender] server capture returned", res.status);
+    return res.ok;
+  } catch (err) {
+    console.warn("[BatchRender] server capture failed:", err);
+    return false;
+  }
+}
+
 async function captureCurrentWorkflow() {
   // Clear any stale same-origin capture first so a failure here never
   // resurfaces an old workflow in the new tab.
@@ -75,44 +118,38 @@ async function captureCurrentWorkflow() {
     window.localStorage.removeItem(CAPTURE_KEY);
   } catch (_e) {}
   try {
-    if (!app || typeof app.graphToPrompt !== "function") return false;
-    const prompt = await app.graphToPrompt();
-    const apiGraph = prompt && prompt.output;
-    if (
-      !apiGraph ||
-      typeof apiGraph !== "object" ||
-      Object.keys(apiGraph).length === 0
-    ) {
-      return false;
-    }
-    const payload = {
-      template: apiGraph,
-      source: "comfyui-canvas",
-      ts: Date.now(),
-    };
-    // Primary channel: hand off through the server so a cross-process UI (the
-    // desktop app opens the page in the external browser) can still read it. We
-    // await this so the slot is filled before window.open below.
-    try {
-      const res = await fetch(CAPTURE_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        console.warn("[BatchRender] server capture returned", res.status);
-      }
-    } catch (err) {
-      console.warn("[BatchRender] server capture failed:", err);
-    }
+    const apiGraph = await snapshotApiGraph();
+    if (!apiGraph) return false;
+    // Primary channel: the server relay. Awaited so the slot is filled before
+    // window.open below.
+    await pushCaptureToServer(apiGraph);
     // Secondary channel: same-origin fast path for the all-in-one-browser case.
     try {
-      window.localStorage.setItem(CAPTURE_KEY, JSON.stringify(payload));
+      window.localStorage.setItem(
+        CAPTURE_KEY,
+        JSON.stringify({ template: apiGraph, source: "comfyui-canvas", ts: Date.now() })
+      );
     } catch (_e) {}
     return true;
   } catch (err) {
     console.warn("[BatchRender] could not capture current workflow:", err);
     return false;
+  }
+}
+
+// Respond to a "Re-sync" click in the Batch Render UI: re-snapshot the live
+// canvas and push it to the server (no new tab, no localStorage needed -- the
+// server then notifies the requesting UI to refresh).
+async function onRecaptureRequest() {
+  try {
+    const apiGraph = await snapshotApiGraph();
+    if (!apiGraph) {
+      console.warn("[BatchRender] re-sync requested but no workflow to capture");
+      return;
+    }
+    await pushCaptureToServer(apiGraph);
+  } catch (err) {
+    console.warn("[BatchRender] re-sync capture failed:", err);
   }
 }
 
@@ -156,6 +193,13 @@ app.registerExtension({
       "[BatchRender] loaded. Use the top menu: 'Batch Render > Open Batch Render UI', " +
         "or open " + window.location.origin + BRP_URL + " directly."
     );
+    // Let the Batch Render UI pull a fresh snapshot on demand (its "Re-sync"
+    // button). ComfyUI relays the event over its own websocket via api.
+    try {
+      api.addEventListener(RECAPTURE_EVENT, onRecaptureRequest);
+    } catch (err) {
+      console.warn("[BatchRender] could not subscribe to re-sync events:", err);
+    }
     // DOM fallback: inject a plain button into the top menu bar.
     try {
       if (document.getElementById("brp-open-btn")) return;

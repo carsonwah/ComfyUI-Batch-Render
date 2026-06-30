@@ -92,6 +92,26 @@ class ComfyDeps:
             pass
         return host, port
 
+    # -- recapture ---------------------------------------------------------- #
+
+    def request_recapture(self) -> bool:
+        """Ask the ComfyUI frontend to re-capture the open workflow.
+
+        Pushes a ``brp_recapture`` websocket event that ``top_menu.js`` listens
+        for; the frontend responds by POSTing the live graph to
+        ``/api/brp/capture`` (which then notifies open Batch Render tabs). This
+        is the only way the standalone UI can pull a fresh canvas snapshot,
+        since ``graphToPrompt()`` exists only in the ComfyUI frontend. Returns
+        ``True`` if the signal was sent, ``False`` if ComfyUI is unreachable.
+        """
+        try:
+            import server  # type: ignore  # ComfyUI runtime only
+
+            server.PromptServer.instance.send_sync("brp_recapture", {})
+            return True
+        except Exception:
+            return False
+
     # -- run ---------------------------------------------------------------- #
 
     def _resolve_template(self, pipeline: Pipeline, template: dict | None) -> dict:

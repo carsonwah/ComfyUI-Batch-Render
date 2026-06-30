@@ -63,6 +63,13 @@ class Deps(Protocol):
         """Return the (host, port) of the target ComfyUI server."""
         ...
 
+    def request_recapture(self) -> bool:
+        """Signal the ComfyUI frontend to re-capture the open workflow.
+
+        Returns True if the signal was sent, False if ComfyUI is unreachable.
+        """
+        ...
+
 
 # --------------------------------------------------------------------------- #
 # Run tracking
@@ -313,6 +320,9 @@ async def _post_capture(request: web.Request) -> web.Response:
         "source": body.get("source") or "comfyui-canvas",
         "ts": body.get("ts"),
     }
+    # Notify any open Batch Render tab so a one-click re-sync (or a re-clicked
+    # ComfyUI icon) refreshes it live. Lightweight signal -- the UI re-fetches.
+    await _runs(request).broadcast({"type": "capture"})
     return web.json_response({"ok": True, "nodes": len(template)})
 
 
@@ -320,6 +330,12 @@ async def _delete_capture(request: web.Request) -> web.Response:
     """Clear the captured workflow (used when the user opts back to a path)."""
     request.app[CAPTURE_KEY]["current"] = None
     return web.json_response({"ok": True})
+
+
+async def _request_recapture(request: web.Request) -> web.Response:
+    """Ask the ComfyUI frontend to push a fresh snapshot of the open canvas."""
+    ok = _deps(request).request_recapture()
+    return web.json_response({"ok": ok})
 
 
 async def _run(request: web.Request) -> web.Response:
@@ -409,6 +425,7 @@ def register_routes(
     app.router.add_get("/api/brp/capture", _get_capture)
     app.router.add_post("/api/brp/capture", _post_capture)
     app.router.add_delete("/api/brp/capture", _delete_capture)
+    app.router.add_post("/api/brp/request-recapture", _request_recapture)
     app.router.add_post("/api/brp/run", _run)
     app.router.add_get("/api/brp/runs/{run_id}", _run_status)
     app.router.add_get("/ws/brp-progress", _ws_progress)

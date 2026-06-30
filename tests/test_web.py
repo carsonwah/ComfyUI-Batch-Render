@@ -24,14 +24,20 @@ _FAKE_MANIFEST = {"pipeline": "p", "job_count": 2, "jobs": []}
 
 
 class FakeDeps:
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, *, recapture_ok: bool = True) -> None:
         self.store = store
+        self.recapture_ok = recapture_ok
+        self.recapture_calls = 0
 
     def list_models(self, kind: str) -> list[dict]:
         return _CANNED[kind]
 
     def comfy_target(self):
         return ("127.0.0.1", 8188)
+
+    def request_recapture(self) -> bool:
+        self.recapture_calls += 1
+        return self.recapture_ok
 
     async def start_run(self, pipeline, template, on_progress):
         for i in (1, 2):
@@ -222,6 +228,50 @@ def test_capture_roundtrip(tmp_path):
                 assert r.status == 200
             async with sess.get(srv.url("/api/brp/capture")) as r:
                 assert (await r.json())["captured"] is None
+
+    asyncio.run(go())
+
+
+def test_request_recapture_and_capture_broadcast(tmp_path):
+    template = {"3": {"class_type": "KSampler", "inputs": {"seed": 0}}}
+    store = Store(tmp_path / "cfg")
+    deps = FakeDeps(store)
+    app = create_app(deps)
+
+    async def go():
+        async with _Server(app) as srv, aiohttp.ClientSession() as sess:
+            # An open tab subscribes to the progress channel.
+            async with sess.ws_connect(srv.url("/ws/brp-progress")) as ws:
+                assert (await ws.receive_json())["type"] == "snapshot"
+
+                # The UI asks ComfyUI (via the server) to re-capture.
+                async with sess.post(srv.url("/api/brp/request-recapture")) as r:
+                    assert r.status == 200
+                    assert (await r.json())["ok"] is True
+                assert deps.recapture_calls == 1
+
+                # When the frontend POSTs the fresh snapshot, open tabs are
+                # notified with a lightweight "capture" signal.
+                async with sess.post(
+                    srv.url("/api/brp/capture"), json={"template": template}
+                ) as r:
+                    assert r.status == 200
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=5)
+                assert msg["type"] == "capture"
+
+    asyncio.run(go())
+
+
+def test_request_recapture_unreachable(tmp_path):
+    store = Store(tmp_path / "cfg")
+    deps = FakeDeps(store, recapture_ok=False)
+    app = create_app(deps)
+
+    async def go():
+        async with _Server(app) as srv, aiohttp.ClientSession() as sess:
+            async with sess.post(srv.url("/api/brp/request-recapture")) as r:
+                assert r.status == 200
+                assert (await r.json())["ok"] is False
 
     asyncio.run(go())
 

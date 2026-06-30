@@ -593,6 +593,43 @@ async function consumeCapture() {
   return false;
 }
 
+// Pull the latest server-side capture and re-map slots. Invoked when the server
+// signals a new capture over the websocket (a "Re-sync" click here, or the user
+// re-clicking the Batch Render icon in ComfyUI).
+async function refreshFromServerCapture() {
+  try {
+    const res = await api.getCapture();
+    const template = res && res.captured && res.captured.template;
+    if (template && typeof template === "object" && Object.keys(template).length) {
+      applyCapture(template);
+      setEditorStatus("re-synced the workflow from ComfyUI", "ok");
+      await detectSlots();
+      return true;
+    }
+  } catch (_e) {
+    /* ignore -- nothing usable on the server */
+  }
+  return false;
+}
+
+// "Re-sync" button: ask ComfyUI (via the server) to push a fresh snapshot of
+// the open canvas. The actual refresh arrives over the websocket as a "capture"
+// signal handled in handleProgress -> refreshFromServerCapture.
+async function requestRecapture() {
+  setEditorStatus("re-syncing from ComfyUI...", "");
+  try {
+    const res = await api.requestRecapture();
+    if (!res || !res.ok) {
+      setEditorStatus(
+        "couldn't reach ComfyUI to re-sync (is it running?)",
+        "err"
+      );
+    }
+  } catch (err) {
+    setEditorStatus(`re-sync failed: ${err.message}`, "err");
+  }
+}
+
 // --------------------------------------------------------------------------- //
 // Detect
 // --------------------------------------------------------------------------- //
@@ -667,9 +704,13 @@ function setProgress(done, total) {
 }
 
 function openProgressSocket() {
-  if (state.run.ws) {
+  // Reuse a live socket so it can stay open between runs -- that's what lets an
+  // idle UI receive "capture" re-sync signals.
+  const existing = state.run.ws;
+  if (existing && existing.readyState === WebSocket.OPEN) return existing;
+  if (existing) {
     try {
-      state.run.ws.close();
+      existing.close();
     } catch (_e) {}
   }
   const ws = new WebSocket(wsUrl());
@@ -688,7 +729,10 @@ function openProgressSocket() {
 }
 
 function handleProgress(msg) {
-  if (msg.type === "progress") {
+  if (msg.type === "capture") {
+    // The server got a fresh canvas snapshot; pull it in.
+    refreshFromServerCapture();
+  } else if (msg.type === "progress") {
     if (msg.total != null) setProgress(msg.done || 0, msg.total);
     const job = msg.job || {};
     const where =
@@ -808,6 +852,7 @@ function wireEvents() {
   document.getElementById("save-btn").addEventListener("click", savePipeline);
   document.getElementById("detect-btn").addEventListener("click", detectSlots);
   document.getElementById("capture-clear").addEventListener("click", clearCapture);
+  document.getElementById("capture-resync").addEventListener("click", requestRecapture);
   document.getElementById("run-btn").addEventListener("click", runPipeline);
   document
     .getElementById("add-base")
@@ -841,6 +886,9 @@ function wireEvents() {
 async function main() {
   setEditorStatus = statusSetter(document.getElementById("editor-status"));
   wireEvents();
+  // Open the progress socket up front so the UI can receive live "capture"
+  // re-sync signals even before any run is started.
+  openProgressSocket();
   await loadHealth();
   await loadModels();
   loadEditorIntoForm();

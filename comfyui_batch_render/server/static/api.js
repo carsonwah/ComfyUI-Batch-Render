@@ -37,6 +37,7 @@ export const api = {
   detect: (payload) => request("POST", "/detect", payload),
   getCapture: () => request("GET", "/capture"),
   clearCapture: () => request("DELETE", "/capture"),
+  requestRecapture: () => request("POST", "/request-recapture"),
   run: (payload) => request("POST", "/run", payload),
   getSettings: () => request("GET", "/settings"),
   saveSettings: (patch) => request("POST", "/settings", patch),
