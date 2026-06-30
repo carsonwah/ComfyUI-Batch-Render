@@ -265,6 +265,9 @@ function renderLoras(box, layer) {
       class: "lora-triggers",
       placeholder: "triggers",
       rows: "2",
+      // Don't soft-wrap: each trainedWords version stays on its own line so
+      // it's obvious where one ends and the next begins (scroll for long ones).
+      wrap: "off",
       value: lora.triggers,
       on: { input: () => (lora.triggers = triggers.value) },
     });
