@@ -105,6 +105,11 @@ function updateCombos() {
 // Layer cards
 // --------------------------------------------------------------------------- //
 
+// Tracks which scenario cards are collapsed. Keyed by the layer object itself so
+// the state survives re-renders and reordering, isn't serialized into the saved
+// pipeline, and is dropped automatically when a layer is removed.
+const collapsedLayers = new WeakSet();
+
 function renderLayerList(kind) {
   const container = document.getElementById(`${kind}-list`);
   clear(container);
@@ -113,6 +118,7 @@ function renderLayerList(kind) {
     container.appendChild(el("p", { class: "empty", text: `No ${kind} yet.` }));
   }
   layers.forEach((layer, i) => container.appendChild(layerCard(kind, layer, i)));
+  if (kind === "scenarios") updateToggleAllLabel();
   updateCombos();
 }
 
@@ -140,37 +146,7 @@ function layerCard(kind, layer, index) {
   const lorasBox = el("div", { class: "loras-box" });
   renderLoras(lorasBox, layer);
 
-  const head = [
-    el("input", {
-      type: "text",
-      class: "card-title",
-      value: layer.name,
-      on: {
-        input: (e) => {
-          layer.name = e.target.value;
-        },
-      },
-    }),
-  ];
-  // The base is a single, always-present set of params -- it can't be removed.
-  if (kind !== "bases") {
-    head.push(
-      el("button", {
-        class: "btn-danger small",
-        text: "Remove",
-        on: {
-          click: (ev) =>
-            confirmDestructive(ev.currentTarget, () => {
-              state.editor[kind].splice(index, 1);
-              renderLayerList(kind);
-            }),
-        },
-      })
-    );
-  }
-
-  return el("div", { class: "card" }, [
-    el("div", { class: "card-head" }, head),
+  const body = el("div", { class: "card-body" }, [
     field("Checkpoint", ckSel),
     field("Positive", posInput),
     field("Negative", negInput),
@@ -190,6 +166,64 @@ function layerCard(kind, layer, index) {
       ]),
       lorasBox,
     ]),
+  ]);
+
+  const head = [];
+  // Scenarios can be collapsed to keep a long list scrollable. The base is a
+  // single card, so it's always expanded and gets no toggle.
+  const collapsible = kind !== "bases";
+  if (collapsible) {
+    if (collapsedLayers.has(layer)) body.hidden = true;
+    const caret = el("button", {
+      class: "small caret",
+      text: collapsedLayers.has(layer) ? "▸" : "▾",
+      title: "collapse / expand",
+      on: {
+        click: () => {
+          const collapsed = !collapsedLayers.has(layer);
+          if (collapsed) collapsedLayers.add(layer);
+          else collapsedLayers.delete(layer);
+          body.hidden = collapsed;
+          caret.textContent = collapsed ? "▸" : "▾";
+          if (kind === "scenarios") updateToggleAllLabel();
+        },
+      },
+    });
+    head.push(caret);
+  }
+
+  head.push(
+    el("input", {
+      type: "text",
+      class: "card-title",
+      value: layer.name,
+      on: {
+        input: (e) => {
+          layer.name = e.target.value;
+        },
+      },
+    })
+  );
+  // The base is a single, always-present set of params -- it can't be removed.
+  if (kind !== "bases") {
+    head.push(
+      el("button", {
+        class: "btn-danger small",
+        text: "Remove",
+        on: {
+          click: (ev) =>
+            confirmDestructive(ev.currentTarget, () => {
+              state.editor[kind].splice(index, 1);
+              renderLayerList(kind);
+            }),
+        },
+      })
+    );
+  }
+
+  return el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, head),
+    body,
   ]);
 }
 
@@ -260,6 +294,31 @@ function field(label, control) {
     el("span", { class: "sub-label", text: label }),
     control,
   ]);
+}
+
+// True when there's at least one scenario and every one is collapsed.
+function allScenariosCollapsed() {
+  const s = state.editor.scenarios;
+  return s.length > 0 && s.every((l) => collapsedLayers.has(l));
+}
+
+// Collapse or expand every scenario card at once, then re-render the list.
+function setAllScenariosCollapsed(collapsed) {
+  for (const layer of state.editor.scenarios) {
+    if (collapsed) collapsedLayers.add(layer);
+    else collapsedLayers.delete(layer);
+  }
+  renderLayerList("scenarios");
+}
+
+// Keep the "Collapse/Expand all" button's label and enabled state in sync with
+// the current scenarios.
+function updateToggleAllLabel() {
+  const btn = document.getElementById("toggle-all-scenarios");
+  if (!btn) return;
+  const hasScenarios = state.editor.scenarios.length > 0;
+  btn.disabled = !hasScenarios;
+  btn.textContent = allScenariosCollapsed() ? "Expand all" : "Collapse all";
 }
 
 // --------------------------------------------------------------------------- //
@@ -985,6 +1044,9 @@ function wireEvents() {
       );
       renderLayerList("scenarios");
     });
+  document
+    .getElementById("toggle-all-scenarios")
+    .addEventListener("click", () => setAllScenariosCollapsed(!allScenariosCollapsed()));
   document.querySelectorAll('input[name="seed-mode"]').forEach((r) =>
     r.addEventListener("change", () => {
       readRuntimeForm();

@@ -265,6 +265,18 @@ button.small {
   flex: 1 1 auto;
   font-weight: 600;
 }
+/* Per-scenario collapse caret: square, monospace triangle, no min-width. */
+button.small.caret {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  padding: 0.25rem 0;
+  text-align: center;
+  line-height: 1;
+}
+/* A collapsed card has no body margin to nudge against the head. */
+.card-head:last-child {
+  margin-bottom: 0;
+}
 .loras-section {
   margin-top: 0.5rem;
   border-top: 1px dashed var(--border);
