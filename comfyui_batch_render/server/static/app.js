@@ -312,9 +312,15 @@ function renderLoras(box, layer) {
   });
 }
 
+// Drop the model file extension for display only (it just adds clutter); the
+// stored `file` value keeps its extension so the LoRA still loads.
+function prettyName(name) {
+  return (name || "").replace(/\.(safetensors|ckpt|pt|sft)$/i, "");
+}
+
 function loraDisplayName(file) {
   const m = loraByFile(file);
-  return m ? m.name : file || "";
+  return prettyName(m ? m.name : file || "");
 }
 
 // An autocomplete LoRA picker: a search input backed by a dropdown of filtered
@@ -356,7 +362,7 @@ function createLoraPicker(initialFile, onPick) {
           })
         : el("div", { class: "lora-thumb lora-thumb-none" });
       const meta = el("div", { class: "lora-meta" }, [
-        el("div", { class: "lora-name", text: m.name }),
+        el("div", { class: "lora-name", text: prettyName(m.name) }),
         el("div", { class: "lora-sub", text: m.subfolder || "" }),
       ]);
       const item = el(
@@ -394,7 +400,7 @@ function createLoraPicker(initialFile, onPick) {
   function choose(m) {
     currentFile = m.file;
     onPick(m.file);
-    input.value = m.name;
+    input.value = prettyName(m.name);
     input.title = m.file;
     hide();
   }
