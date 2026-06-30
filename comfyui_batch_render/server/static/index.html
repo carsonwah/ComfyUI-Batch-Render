@@ -61,12 +61,24 @@
         </label>
 
         <section class="panel">
-          <h3>Workflow template</h3>
-          <div class="row">
+          <h3>Workflow</h3>
+
+          <div id="capture-banner" class="capture-banner" hidden>
+            <span id="capture-text" class="ok small"></span>
+            <button id="capture-clear" class="small">Use a file instead</button>
+          </div>
+
+          <div id="template-row" class="row">
             <input id="pl-template" type="text" class="grow"
-                   placeholder="path to API-format workflow (.json)" />
+                   placeholder="path to exported API workflow (.json)" />
             <button id="detect-btn" class="small">Detect slots</button>
           </div>
+          <p class="muted small">
+            Easiest: open your workflow in ComfyUI and click
+            <strong>Batch Render</strong> &mdash; it loads here automatically, no
+            file needed. Otherwise export via
+            <em>Workflow &rarr; Export (API)</em> and enter the path above.
+          </p>
           <p id="detect-notes" class="muted small"></p>
 
           <details id="advanced" class="advanced">

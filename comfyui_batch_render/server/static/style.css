@@ -136,6 +136,23 @@ h3 {
   gap: 0.25rem;
 }
 
+/* "Using current ComfyUI workflow" banner */
+.capture-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  background: var(--panel2);
+  border: 1px solid var(--ok);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.6rem;
+}
+.capture-banner[hidden] {
+  display: none;
+}
+
 /* Inputs */
 input[type="text"],
 input[type="number"],

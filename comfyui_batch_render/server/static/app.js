@@ -13,8 +13,14 @@ const state = {
   pipelines: [],
   editor: blankPipeline(),
   loadedName: null, // server name of the pipeline currently loaded (for PUT)
+  // Workflow captured from the ComfyUI canvas (API-format dict) for this
+  // session, or null when using the manual template-path field instead.
+  captured: null,
   run: { active: false, ws: null },
 };
+
+// localStorage key the ComfyUI top-menu extension writes the current graph to.
+const CAPTURE_KEY = "brp_captured_workflow";
 
 function blankPipeline() {
   return {
@@ -260,6 +266,7 @@ function loadEditorIntoForm() {
   renderLayerList("bases");
   renderLayerList("scenarios");
   document.getElementById("detect-notes").textContent = "";
+  setCaptureUI();
 }
 
 function setVal(id, v) {
@@ -390,6 +397,8 @@ async function loadPipeline(name) {
     const data = await api.getPipeline(name);
     state.editor = normalizeLoaded(data.pipeline || {});
     state.loadedName = data.pipeline && data.pipeline.name ? data.pipeline.name : name;
+    // A saved pipeline carries its own template path; drop any canvas capture.
+    state.captured = null;
     loadEditorIntoForm();
     setEditorStatus(`loaded "${name}"`, "ok");
   } catch (err) {
@@ -470,10 +479,93 @@ async function savePipeline() {
     await api.savePipeline(body.name, body);
     state.loadedName = body.name;
     await refreshPipelines();
-    setEditorStatus(`saved "${body.name}"`, "ok");
+    if (state.captured) {
+      // The captured graph is session-only; the saved pipeline has no template
+      // path, so it must be re-captured (or given a path) before a later run.
+      setEditorStatus(
+        `saved "${body.name}" — re-capture the workflow or set a path before running later`,
+        "ok"
+      );
+    } else {
+      setEditorStatus(`saved "${body.name}"`, "ok");
+    }
   } catch (err) {
     setEditorStatus(`save failed: ${err.message}`, "err");
   }
+}
+
+// --------------------------------------------------------------------------- //
+// Captured workflow (handoff from the ComfyUI canvas)
+// --------------------------------------------------------------------------- //
+
+// Detect/run need a template reference: the captured API graph if present,
+// otherwise the manual path from the form. Returns null when neither is set.
+function templateRef() {
+  if (state.captured) return { template: state.captured.template };
+  const path = state.editor.workflow_template;
+  return path ? { path } : null;
+}
+
+function setCaptureUI() {
+  const banner = document.getElementById("capture-banner");
+  const text = document.getElementById("capture-text");
+  const input = document.getElementById("pl-template");
+  if (!banner) return;
+  if (state.captured) {
+    const n = Object.keys(state.captured.template || {}).length;
+    if (text) text.textContent = `✓ Using the workflow open in ComfyUI (${n} nodes).`;
+    banner.hidden = false;
+    if (input) {
+      input.disabled = true;
+      input.placeholder = "(using captured workflow)";
+    }
+  } else {
+    banner.hidden = true;
+    if (input) {
+      input.disabled = false;
+      input.placeholder = "path to exported API workflow (.json)";
+    }
+  }
+}
+
+function applyCapture(template) {
+  state.captured = { template };
+  // A captured workflow has no on-disk path; clear the stale field value.
+  state.editor.workflow_template = "";
+  setVal("pl-template", "");
+  setCaptureUI();
+}
+
+function clearCapture() {
+  if (!state.captured) return;
+  state.captured = null;
+  setCaptureUI();
+  const input = document.getElementById("pl-template");
+  if (input) input.focus();
+}
+
+// Read the one-shot handoff the ComfyUI extension left in localStorage. Best
+// effort: bad/missing data just leaves the manual field in place.
+function consumeCapture() {
+  let raw = null;
+  try {
+    raw = window.localStorage.getItem(CAPTURE_KEY);
+    if (raw) window.localStorage.removeItem(CAPTURE_KEY);
+  } catch (_e) {
+    return false;
+  }
+  if (!raw) return false;
+  try {
+    const data = JSON.parse(raw);
+    const template = data && data.template;
+    if (template && typeof template === "object" && Object.keys(template).length) {
+      applyCapture(template);
+      return true;
+    }
+  } catch (_e) {
+    /* ignore malformed handoff */
+  }
+  return false;
 }
 
 // --------------------------------------------------------------------------- //
@@ -482,13 +574,13 @@ async function savePipeline() {
 
 async function detectSlots() {
   readFormIntoEditor();
-  const path = state.editor.workflow_template;
-  if (!path) {
-    setEditorStatus("enter a template path first", "err");
+  const ref = templateRef();
+  if (!ref) {
+    setEditorStatus("capture a workflow from ComfyUI, or enter a template path", "err");
     return;
   }
   try {
-    const res = await api.detect({ path });
+    const res = await api.detect(ref);
     const nm = res.node_map || {};
     const e = state.editor;
     if (nm.prompt) e.node_map.prompt = nm.prompt;
@@ -598,8 +690,10 @@ async function runPipeline() {
   setRunActive(true);
   openProgressSocket();
   logLine(`starting run for "${body.name}"...`);
+  const runPayload = { pipeline: body };
+  if (state.captured) runPayload.template = state.captured.template;
   try {
-    const res = await api.run({ pipeline: body });
+    const res = await api.run(runPayload);
     logLine(`run id: ${res.run_id}`);
   } catch (err) {
     logLine(`run failed to start: ${err.message}`, "err");
@@ -688,6 +782,7 @@ function wireEvents() {
   document.getElementById("new-btn").addEventListener("click", newPipeline);
   document.getElementById("save-btn").addEventListener("click", savePipeline);
   document.getElementById("detect-btn").addEventListener("click", detectSlots);
+  document.getElementById("capture-clear").addEventListener("click", clearCapture);
   document.getElementById("run-btn").addEventListener("click", runPipeline);
   document
     .getElementById("add-base")
@@ -726,6 +821,13 @@ async function main() {
   loadEditorIntoForm();
   await refreshPipelines();
   await loadSettings();
+
+  // Pick up a workflow handed off from the ComfyUI canvas, if any, and map its
+  // slots straight away so the user lands on a ready-to-edit pipeline.
+  if (consumeCapture()) {
+    setEditorStatus("loaded the workflow open in ComfyUI", "ok");
+    await detectSlots();
+  }
 }
 
 window.addEventListener("DOMContentLoaded", main);
