@@ -11,7 +11,11 @@ import { el, clear, fillSelect, statusSetter } from "./components.js";
 const state = {
   models: { checkpoints: [], loras: [] },
   pipelines: [],
+  // The saved pipeline: name + base + scenarios. This is all that Save persists.
   editor: blankPipeline(),
+  // Run-time config: workflow + slot map + seed. NOT part of the pipeline; it's
+  // applied to whichever pipeline is open and persisted to settings (not files).
+  runtime: blankRuntime(),
   loadedName: null, // server name of the pipeline currently loaded (for PUT)
   // Workflow captured from the ComfyUI canvas (API-format dict) for this
   // session, or null when using the manual template-path field instead.
@@ -25,6 +29,16 @@ const CAPTURE_KEY = "brp_captured_workflow";
 function blankPipeline() {
   return {
     name: "untitled",
+    // Exactly one base, always present -- it's a single set of params, not a list.
+    bases: [blankLayer("base")],
+    scenarios: [],
+  };
+}
+
+// Run-time config lives outside the pipeline: the workflow to render against,
+// the slot mapping detected from it, and the seed policy.
+function blankRuntime() {
+  return {
     workflow_template: "",
     node_map: {
       prompt: "",
@@ -34,11 +48,8 @@ function blankPipeline() {
       clip_src: ["", 1],
       ckpt: "",
     },
-    seed: { mode: "fixed", value: 42, count: 4 },
     default_checkpoint: "",
-    // Exactly one base, always present -- it's a single set of params, not a list.
-    bases: [blankLayer("base")],
-    scenarios: [],
+    seed: { mode: "fixed", value: 42, count: 4 },
   };
 }
 
@@ -74,7 +85,7 @@ function loraTriggersFor(file) {
 // --------------------------------------------------------------------------- //
 
 function seedCount() {
-  const s = state.editor.seed;
+  const s = state.runtime.seed;
   return s.mode === "randomize" ? Math.max(1, Number(s.count) || 1) : 1;
 }
 
@@ -255,27 +266,33 @@ function field(label, control) {
 // Editor <-> DOM binding for the top-level fields
 // --------------------------------------------------------------------------- //
 
-function loadEditorIntoForm() {
-  const e = state.editor;
-  setVal("pl-name", e.name);
-  setVal("pl-template", e.workflow_template);
-  setVal("nm-prompt", e.node_map.prompt || "");
-  setVal("nm-negative", e.node_map.negative || "");
-  setVal("nm-seed", e.node_map.seed || "");
-  setVal("nm-ckpt", e.node_map.ckpt || "");
-  setVal("nm-model-src", (e.node_map.model_src || ["", 0]).join(","));
-  setVal("nm-clip-src", (e.node_map.clip_src || ["", 1]).join(","));
-  setVal("pl-default-ckpt", e.default_checkpoint || "");
-
-  const mode = e.seed.mode === "randomize" ? "randomize" : "fixed";
-  const radios = document.querySelectorAll('input[name="seed-mode"]');
-  radios.forEach((r) => (r.checked = r.value === mode));
-  setVal("seed-value", e.seed.value == null ? "" : e.seed.value);
-  setVal("seed-count", e.seed.count == null ? "" : e.seed.count);
-  syncSeedInputs();
-
+// Render the saved-pipeline fields (name + base + scenarios). Called on new /
+// load; it must NOT touch run-time config, which lives independently.
+function renderPipelineForm() {
+  setVal("pl-name", state.editor.name);
   renderLayerList("bases");
   renderLayerList("scenarios");
+}
+
+// Render the run-time config (workflow + slot map + seed) into the form.
+function renderRuntimeForm() {
+  const r = state.runtime;
+  setVal("pl-template", r.workflow_template);
+  setVal("nm-prompt", r.node_map.prompt || "");
+  setVal("nm-negative", r.node_map.negative || "");
+  setVal("nm-seed", r.node_map.seed || "");
+  setVal("nm-ckpt", r.node_map.ckpt || "");
+  setVal("nm-model-src", (r.node_map.model_src || ["", 0]).join(","));
+  setVal("nm-clip-src", (r.node_map.clip_src || ["", 1]).join(","));
+  setVal("pl-default-ckpt", r.default_checkpoint || "");
+
+  const mode = r.seed.mode === "randomize" ? "randomize" : "fixed";
+  const radios = document.querySelectorAll('input[name="seed-mode"]');
+  radios.forEach((x) => (x.checked = x.value === mode));
+  setVal("seed-value", r.seed.value == null ? "" : r.seed.value);
+  setVal("seed-count", r.seed.count == null ? "" : r.seed.count);
+  syncSeedInputs();
+
   document.getElementById("detect-notes").textContent = "";
   setCaptureUI();
 }
@@ -285,24 +302,28 @@ function setVal(id, v) {
   if (node) node.value = v;
 }
 
-function readFormIntoEditor() {
-  const e = state.editor;
-  e.name = getVal("pl-name").trim() || "untitled";
-  e.workflow_template = getVal("pl-template").trim();
-  e.node_map.prompt = getVal("nm-prompt").trim();
-  e.node_map.negative = getVal("nm-negative").trim();
-  e.node_map.seed = getVal("nm-seed").trim();
-  e.node_map.ckpt = getVal("nm-ckpt").trim();
-  e.node_map.model_src = parsePair(getVal("nm-model-src"), 0);
-  e.node_map.clip_src = parsePair(getVal("nm-clip-src"), 1);
-  e.default_checkpoint = getVal("pl-default-ckpt").trim();
+function readPipelineForm() {
+  state.editor.name = getVal("pl-name").trim() || "untitled";
+  // Layer fields (name/prompt/loras) are bound live as they're edited.
+}
+
+function readRuntimeForm() {
+  const r = state.runtime;
+  r.workflow_template = getVal("pl-template").trim();
+  r.node_map.prompt = getVal("nm-prompt").trim();
+  r.node_map.negative = getVal("nm-negative").trim();
+  r.node_map.seed = getVal("nm-seed").trim();
+  r.node_map.ckpt = getVal("nm-ckpt").trim();
+  r.node_map.model_src = parsePair(getVal("nm-model-src"), 0);
+  r.node_map.clip_src = parsePair(getVal("nm-clip-src"), 1);
+  r.default_checkpoint = getVal("pl-default-ckpt").trim();
 
   const mode = document.querySelector('input[name="seed-mode"]:checked');
-  e.seed.mode = mode ? mode.value : "fixed";
+  r.seed.mode = mode ? mode.value : "fixed";
   const v = getVal("seed-value").trim();
-  e.seed.value = v === "" ? null : parseInt(v, 10);
+  r.seed.value = v === "" ? null : parseInt(v, 10);
   const c = getVal("seed-count").trim();
-  e.seed.count = c === "" ? 1 : parseInt(c, 10);
+  r.seed.count = c === "" ? 1 : parseInt(c, 10);
 }
 
 function getVal(id) {
@@ -323,29 +344,48 @@ function parsePair(raw, fallbackIdx) {
 // Assemble + validate the pipeline dict the API expects
 // --------------------------------------------------------------------------- //
 
+// The saved-pipeline dict: name + base + scenarios only. Workflow / slots / seed
+// are run-time config and deliberately excluded.
 function assemblePipeline() {
-  readFormIntoEditor();
+  readPipelineForm();
   const e = state.editor;
-  const out = {
+  return {
     name: e.name,
-    workflow_template: e.workflow_template,
-    node_map: {
-      prompt: e.node_map.prompt,
-      negative: e.node_map.negative || null,
-      seed: e.node_map.seed,
-      model_src: e.node_map.model_src,
-      clip_src: e.node_map.clip_src,
-      ckpt: e.node_map.ckpt || null,
-    },
-    seed:
-      e.seed.mode === "randomize"
-        ? { mode: "randomize", count: e.seed.count || 1 }
-        : { mode: "fixed", value: e.seed.value == null ? 0 : e.seed.value },
-    default_checkpoint: e.default_checkpoint || null,
     bases: e.bases.map(layerToDict),
     scenarios: e.scenarios.map(layerToDict),
   };
-  return out;
+}
+
+// The /run payload: merge the open pipeline with the current run-time config so
+// the engine (Pipeline.from_dict) still receives node_map + seed. The captured
+// canvas graph, if any, rides along as `template`.
+function assembleRunPayload() {
+  readPipelineForm();
+  readRuntimeForm();
+  const e = state.editor;
+  const r = state.runtime;
+  const pipeline = {
+    name: e.name,
+    bases: e.bases.map(layerToDict),
+    scenarios: e.scenarios.map(layerToDict),
+    workflow_template: r.workflow_template,
+    node_map: {
+      prompt: r.node_map.prompt,
+      negative: r.node_map.negative || null,
+      seed: r.node_map.seed,
+      model_src: r.node_map.model_src,
+      clip_src: r.node_map.clip_src,
+      ckpt: r.node_map.ckpt || null,
+    },
+    seed:
+      r.seed.mode === "randomize"
+        ? { mode: "randomize", count: r.seed.count || 1 }
+        : { mode: "fixed", value: r.seed.value == null ? 0 : r.seed.value },
+    default_checkpoint: r.default_checkpoint || null,
+  };
+  const payload = { pipeline };
+  if (state.captured) payload.template = state.captured.template;
+  return payload;
 }
 
 function layerToDict(layer) {
@@ -447,37 +487,22 @@ async function loadPipeline(name) {
     const data = await api.getPipeline(name);
     state.editor = normalizeLoaded(data.pipeline || {});
     state.loadedName = data.pipeline && data.pipeline.name ? data.pipeline.name : name;
-    // A saved pipeline carries its own template path; drop any canvas capture.
-    state.captured = null;
-    loadEditorIntoForm();
+    // Run-time config (workflow / slots / seed) and any canvas capture are
+    // independent of the pipeline -- leave them untouched on load.
+    renderPipelineForm();
     setEditorStatus(`loaded "${name}"`, "ok");
   } catch (err) {
     setEditorStatus(`load failed: ${err.message}`, "err");
   }
 }
 
-// Merge a stored pipeline dict onto a blank template so the form has all fields.
+// Merge a stored pipeline dict onto a blank template. Only name + base +
+// scenarios are part of a pipeline now; any legacy workflow/seed/node_map fields
+// in older files are ignored (and dropped on the next Save).
 function normalizeLoaded(p) {
   const base = blankPipeline();
-  const nm = p.node_map || {};
-  const seed = p.seed || {};
   return {
     name: p.name || base.name,
-    workflow_template: p.workflow_template || "",
-    node_map: {
-      prompt: nm.prompt || "",
-      negative: nm.negative || "",
-      seed: nm.seed || "",
-      model_src: Array.isArray(nm.model_src) ? nm.model_src : ["", 0],
-      clip_src: Array.isArray(nm.clip_src) ? nm.clip_src : ["", 1],
-      ckpt: nm.ckpt || "",
-    },
-    seed: {
-      mode: seed.mode === "randomize" ? "randomize" : "fixed",
-      value: seed.value == null ? 42 : seed.value,
-      count: seed.count == null ? 4 : seed.count,
-    },
-    default_checkpoint: p.default_checkpoint || "",
     // Always exactly one base; keep the first if a legacy pipeline had several.
     bases: [(p.bases || []).map(normalizeLayer)[0] || blankLayer("base")],
     scenarios: (p.scenarios || []).map(normalizeLayer),
@@ -504,7 +529,7 @@ async function deletePipeline(name) {
     if (state.loadedName === name) {
       state.editor = blankPipeline();
       state.loadedName = null;
-      loadEditorIntoForm();
+      renderPipelineForm();
     }
     await refreshPipelines();
   } catch (err) {
@@ -515,7 +540,7 @@ async function deletePipeline(name) {
 function newPipeline() {
   state.editor = blankPipeline();
   state.loadedName = null;
-  loadEditorIntoForm();
+  renderPipelineForm();
   setEditorStatus("new pipeline", "ok");
 }
 
@@ -530,16 +555,7 @@ async function savePipeline() {
     await api.savePipeline(body.name, body);
     state.loadedName = body.name;
     await refreshPipelines();
-    if (state.captured) {
-      // The captured graph is session-only; the saved pipeline has no template
-      // path, so it must be re-captured (or given a path) before a later run.
-      setEditorStatus(
-        `saved "${body.name}" — re-capture the workflow or set a path before running later`,
-        "ok"
-      );
-    } else {
-      setEditorStatus(`saved "${body.name}"`, "ok");
-    }
+    setEditorStatus(`saved "${body.name}"`, "ok");
   } catch (err) {
     setEditorStatus(`save failed: ${err.message}`, "err");
   }
@@ -553,7 +569,7 @@ async function savePipeline() {
 // otherwise the manual path from the form. Returns null when neither is set.
 function templateRef() {
   if (state.captured) return { template: state.captured.template };
-  const path = state.editor.workflow_template;
+  const path = state.runtime.workflow_template;
   return path ? { path } : null;
 }
 
@@ -582,7 +598,7 @@ function setCaptureUI() {
 function applyCapture(template) {
   state.captured = { template };
   // A captured workflow has no on-disk path; clear the stale field value.
-  state.editor.workflow_template = "";
+  state.runtime.workflow_template = "";
   setVal("pl-template", "");
   setCaptureUI();
 }
@@ -686,7 +702,7 @@ async function requestRecapture() {
 // --------------------------------------------------------------------------- //
 
 async function detectSlots() {
-  readFormIntoEditor();
+  readRuntimeForm();
   const ref = templateRef();
   if (!ref) {
     setEditorStatus("capture a workflow from ComfyUI, or enter a template path", "err");
@@ -695,23 +711,23 @@ async function detectSlots() {
   try {
     const res = await api.detect(ref);
     const nm = res.node_map || {};
-    const e = state.editor;
-    if (nm.prompt) e.node_map.prompt = nm.prompt;
-    if (nm.negative) e.node_map.negative = nm.negative;
-    if (nm.seed) e.node_map.seed = nm.seed;
-    if (nm.ckpt) e.node_map.ckpt = nm.ckpt;
-    if (nm.model_src) e.node_map.model_src = nm.model_src;
-    if (nm.clip_src) e.node_map.clip_src = nm.clip_src;
-    if (res.default_checkpoint) e.default_checkpoint = res.default_checkpoint;
+    const r = state.runtime;
+    if (nm.prompt) r.node_map.prompt = nm.prompt;
+    if (nm.negative) r.node_map.negative = nm.negative;
+    if (nm.seed) r.node_map.seed = nm.seed;
+    if (nm.ckpt) r.node_map.ckpt = nm.ckpt;
+    if (nm.model_src) r.node_map.model_src = nm.model_src;
+    if (nm.clip_src) r.node_map.clip_src = nm.clip_src;
+    if (res.default_checkpoint) r.default_checkpoint = res.default_checkpoint;
 
     // Re-sync the node_map inputs only (keep layers as-is).
-    setVal("nm-prompt", e.node_map.prompt || "");
-    setVal("nm-negative", e.node_map.negative || "");
-    setVal("nm-seed", e.node_map.seed || "");
-    setVal("nm-ckpt", e.node_map.ckpt || "");
-    setVal("nm-model-src", (e.node_map.model_src || ["", 0]).join(","));
-    setVal("nm-clip-src", (e.node_map.clip_src || ["", 1]).join(","));
-    setVal("pl-default-ckpt", e.default_checkpoint || "");
+    setVal("nm-prompt", r.node_map.prompt || "");
+    setVal("nm-negative", r.node_map.negative || "");
+    setVal("nm-seed", r.node_map.seed || "");
+    setVal("nm-ckpt", r.node_map.ckpt || "");
+    setVal("nm-model-src", (r.node_map.model_src || ["", 0]).join(","));
+    setVal("nm-clip-src", (r.node_map.clip_src || ["", 1]).join(","));
+    setVal("pl-default-ckpt", r.default_checkpoint || "");
 
     const notes = (res.notes || []).join(" ");
     document.getElementById("detect-notes").textContent = notes || "Detected all slots.";
@@ -719,6 +735,7 @@ async function detectSlots() {
     const adv = document.getElementById("advanced");
     if (adv) adv.open = true;
     setEditorStatus("slots detected", "ok");
+    persistRuntime(); // remember the detected slots across reloads
   } catch (err) {
     setEditorStatus(`detect failed: ${err.message}`, "err");
     document.getElementById("detect-notes").textContent = "";
@@ -804,14 +821,13 @@ function handleProgress(msg) {
 
 async function runPipeline() {
   if (state.run.active) return;
-  const body = assemblePipeline();
+  const runPayload = assembleRunPayload();
+  persistRuntime(); // remember the run-time config used for this run
   clear(document.getElementById("run-log"));
   setProgress(0, 0);
   setRunActive(true);
   openProgressSocket();
-  logLine(`starting run for "${body.name}"...`);
-  const runPayload = { pipeline: body };
-  if (state.captured) runPayload.template = state.captured.template;
+  logLine(`starting run for "${runPayload.pipeline.name}"...`);
   try {
     const res = await api.run(runPayload);
     logLine(`run id: ${res.run_id}`);
@@ -854,6 +870,62 @@ async function saveSettings() {
     document.getElementById("settings-status").textContent = "settings saved";
   } catch (err) {
     document.getElementById("settings-status").textContent = `save failed: ${err.message}`;
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Run-time config persistence (settings-backed, not part of any pipeline)
+// --------------------------------------------------------------------------- //
+
+// Persist the current run-time config under settings.run so it survives reloads
+// and carries across pipelines. Best-effort: a failed write is non-fatal.
+async function persistRuntime() {
+  readRuntimeForm();
+  const r = state.runtime;
+  const patch = {
+    run: {
+      workflow_path: r.workflow_template || null,
+      node_map: r.node_map,
+      default_checkpoint: r.default_checkpoint || null,
+      seed: r.seed,
+    },
+  };
+  try {
+    await api.saveSettings(patch);
+  } catch (_e) {
+    /* best effort */
+  }
+}
+
+// Hydrate state.runtime from settings.run on startup.
+async function loadRuntimeFromSettings() {
+  try {
+    const data = await api.getSettings();
+    const run = (data.settings && data.settings.run) || {};
+    const r = state.runtime;
+    if (run.workflow_path) r.workflow_template = run.workflow_path;
+    const nm = run.node_map;
+    if (nm && typeof nm === "object") {
+      r.node_map = {
+        prompt: nm.prompt || "",
+        negative: nm.negative || "",
+        seed: nm.seed || "",
+        model_src: Array.isArray(nm.model_src) ? nm.model_src : ["", 0],
+        clip_src: Array.isArray(nm.clip_src) ? nm.clip_src : ["", 1],
+        ckpt: nm.ckpt || "",
+      };
+    }
+    if (run.default_checkpoint) r.default_checkpoint = run.default_checkpoint;
+    const s = run.seed;
+    if (s && typeof s === "object") {
+      r.seed = {
+        mode: s.mode === "randomize" ? "randomize" : "fixed",
+        value: s.value == null ? 42 : s.value,
+        count: s.count == null ? 4 : s.count,
+      };
+    }
+  } catch (_e) {
+    /* no saved run config -- keep defaults */
   }
 }
 
@@ -915,16 +987,24 @@ function wireEvents() {
     });
   document.querySelectorAll('input[name="seed-mode"]').forEach((r) =>
     r.addEventListener("change", () => {
-      readFormIntoEditor();
+      readRuntimeForm();
       syncSeedInputs();
+      persistRuntime();
     })
   );
-  ["seed-value", "seed-count"].forEach((id) =>
-    document.getElementById(id).addEventListener("input", () => {
-      readFormIntoEditor();
+  ["seed-value", "seed-count"].forEach((id) => {
+    const node = document.getElementById(id);
+    node.addEventListener("input", () => {
+      readRuntimeForm();
       updateCombos();
-    })
-  );
+    });
+    node.addEventListener("change", persistRuntime);
+  });
+  // Manual workflow-path edits are remembered once the field loses focus.
+  document.getElementById("pl-template").addEventListener("change", () => {
+    readRuntimeForm();
+    persistRuntime();
+  });
   document.getElementById("settings-save").addEventListener("click", saveSettings);
 }
 
@@ -936,9 +1016,11 @@ async function main() {
   openProgressSocket();
   await loadHealth();
   await loadModels();
-  loadEditorIntoForm();
-  await refreshPipelines();
   await loadSettings();
+  await loadRuntimeFromSettings(); // restore run-time config before first render
+  renderPipelineForm();
+  renderRuntimeForm();
+  await refreshPipelines();
 
   // Pick up a workflow handed off from the ComfyUI canvas, if any, and map its
   // slots straight away so the user lands on a ready-to-edit pipeline.

@@ -48,131 +48,153 @@
         </details>
       </aside>
 
-      <!-- Main: pipeline editor -->
+      <!-- Main: pipeline editor + run-time config -->
       <main class="editor">
-        <div class="row-between">
-          <h2>Editor</h2>
-          <span id="editor-status" class="status"></span>
-        </div>
-
-        <label class="field">
-          <span class="sub-label">Pipeline name</span>
-          <input id="pl-name" type="text" placeholder="my-pipeline" />
-        </label>
-
-        <section class="panel">
-          <h3>Workflow</h3>
-
-          <div id="capture-banner" class="capture-banner" hidden>
-            <span id="capture-text" class="ok small"></span>
-            <button id="capture-resync" class="small"
-                    title="Pull the workflow currently open in ComfyUI">&#x21bb; Re-sync</button>
-            <!-- "Use a file instead" hidden for now: the manual path input is
-                 confusing without guidance. Re-enable when that flow is clearer. -->
-            <button id="capture-clear" class="small" hidden>Use a file instead</button>
-            <span class="muted small">
-              Edited the graph in ComfyUI? Click <strong>Re-sync</strong> to pull the latest.
-            </span>
+        <!-- ===================== PIPELINE (what Save persists) ============= -->
+        <section class="zone pipeline-zone">
+          <div class="zone-head row-between">
+            <h2>Pipeline</h2>
+            <span id="editor-status" class="status"></span>
           </div>
-
-          <div id="template-row" class="row">
-            <input id="pl-template" type="text" class="grow"
-                   placeholder="path to exported API workflow (.json)" />
-            <button id="detect-btn" class="small">Detect slots</button>
-          </div>
-          <p class="muted small">
-            Easiest: open your workflow in ComfyUI and click
-            <strong>Batch Render</strong> &mdash; it loads here automatically, no
-            file needed. Otherwise export via
-            <em>Workflow &rarr; Export (API)</em> and enter the path above.
+          <p class="muted small zone-intro">
+            A pipeline is a reusable recipe: one <strong>base</strong> plus the
+            <strong>scenarios</strong> to loop through. The workflow and seed
+            below are chosen at run time &mdash; they are not part of the
+            pipeline, so any pipeline can run on any workflow.
           </p>
-          <p id="detect-notes" class="muted small"></p>
 
-          <details id="advanced" class="advanced">
-            <summary>Advanced / slot mapping</summary>
-            <div class="grid2">
-              <label class="field">
-                <span class="sub-label">prompt node id</span>
-                <input id="nm-prompt" type="text" />
-              </label>
-              <label class="field">
-                <span class="sub-label">negative node id</span>
-                <input id="nm-negative" type="text" />
-              </label>
-              <label class="field">
-                <span class="sub-label">seed (sampler) node id</span>
-                <input id="nm-seed" type="text" />
-              </label>
-              <label class="field">
-                <span class="sub-label">ckpt node id</span>
-                <input id="nm-ckpt" type="text" />
-              </label>
-              <label class="field">
-                <span class="sub-label">model_src (id,idx)</span>
-                <input id="nm-model-src" type="text" placeholder="4,0" />
-              </label>
-              <label class="field">
-                <span class="sub-label">clip_src (id,idx)</span>
-                <input id="nm-clip-src" type="text" placeholder="4,1" />
-              </label>
-              <label class="field">
-                <span class="sub-label">default checkpoint</span>
-                <input id="pl-default-ckpt" type="text" />
-              </label>
+          <label class="field">
+            <span class="sub-label">Pipeline name</span>
+            <input id="pl-name" type="text" placeholder="my-pipeline" />
+          </label>
+
+          <section class="panel">
+            <div class="row-between">
+              <h3>Base</h3>
             </div>
-          </details>
-        </section>
+            <div id="bases-list" class="layer-list"></div>
+          </section>
 
-        <section class="panel">
-          <h3>Seed</h3>
-          <div class="row">
-            <label class="radio">
-              <input type="radio" name="seed-mode" value="fixed" checked /> fixed
-            </label>
-            <label class="radio">
-              <input type="radio" name="seed-mode" value="randomize" /> randomize
-            </label>
-            <span id="seed-fixed-wrap" class="inline">
-              <span class="sub-label">value</span>
-              <input id="seed-value" type="number" value="42" />
-            </span>
-            <span id="seed-rand-wrap" class="inline">
-              <span class="sub-label">count</span>
-              <input id="seed-count" type="number" value="4" min="1" />
-            </span>
+          <section class="panel">
+            <div class="row-between">
+              <h3>Scenarios</h3>
+              <button id="add-scenario" class="small">+ Scenario</button>
+            </div>
+            <div id="scenarios-list" class="layer-list"></div>
+          </section>
+
+          <div class="row-between zone-actions">
+            <span class="muted small">Save stores the base &amp; scenarios.</span>
+            <button id="save-btn">Save pipeline</button>
           </div>
         </section>
 
-        <section class="panel">
-          <div class="row-between">
-            <h3>Base</h3>
+        <!-- ===================== RUN (run-time config, not saved) ========== -->
+        <section class="zone run-zone">
+          <div class="zone-head row-between">
+            <h2>Run</h2>
           </div>
-          <div id="bases-list" class="layer-list"></div>
-        </section>
+          <p class="muted small zone-intro">
+            Run-time settings &mdash; applied to whichever pipeline is open and
+            remembered across pipelines.
+          </p>
 
-        <section class="panel">
-          <div class="row-between">
-            <h3>Scenarios</h3>
-            <button id="add-scenario" class="small">+ Scenario</button>
-          </div>
-          <div id="scenarios-list" class="layer-list"></div>
-        </section>
+          <section class="panel">
+            <h3>Workflow</h3>
 
-        <div class="row-between sticky-actions">
-          <span id="combo-counter" class="muted"></span>
-          <span>
-            <button id="save-btn">Save</button>
+            <div id="capture-banner" class="capture-banner" hidden>
+              <span id="capture-text" class="ok small"></span>
+              <button id="capture-resync" class="small"
+                      title="Pull the workflow currently open in ComfyUI">&#x21bb; Re-sync</button>
+              <!-- "Use a file instead" hidden for now: the manual path input is
+                   confusing without guidance. Re-enable when that flow is clearer. -->
+              <button id="capture-clear" class="small" hidden>Use a file instead</button>
+              <span class="muted small">
+                Edited the graph in ComfyUI? Click <strong>Re-sync</strong> to pull the latest.
+              </span>
+            </div>
+
+            <div id="template-row" class="row">
+              <input id="pl-template" type="text" class="grow"
+                     placeholder="path to exported API workflow (.json)" />
+              <button id="detect-btn" class="small">Detect slots</button>
+            </div>
+            <p class="muted small">
+              Easiest: open your workflow in ComfyUI and click
+              <strong>Batch Render</strong> &mdash; it loads here automatically, no
+              file needed. Otherwise export via
+              <em>Workflow &rarr; Export (API)</em> and enter the path above.
+            </p>
+            <p id="detect-notes" class="muted small"></p>
+
+            <details id="advanced" class="advanced">
+              <summary>Advanced / slot mapping</summary>
+              <div class="grid2">
+                <label class="field">
+                  <span class="sub-label">prompt node id</span>
+                  <input id="nm-prompt" type="text" />
+                </label>
+                <label class="field">
+                  <span class="sub-label">negative node id</span>
+                  <input id="nm-negative" type="text" />
+                </label>
+                <label class="field">
+                  <span class="sub-label">seed (sampler) node id</span>
+                  <input id="nm-seed" type="text" />
+                </label>
+                <label class="field">
+                  <span class="sub-label">ckpt node id</span>
+                  <input id="nm-ckpt" type="text" />
+                </label>
+                <label class="field">
+                  <span class="sub-label">model_src (id,idx)</span>
+                  <input id="nm-model-src" type="text" placeholder="4,0" />
+                </label>
+                <label class="field">
+                  <span class="sub-label">clip_src (id,idx)</span>
+                  <input id="nm-clip-src" type="text" placeholder="4,1" />
+                </label>
+                <label class="field">
+                  <span class="sub-label">default checkpoint</span>
+                  <input id="pl-default-ckpt" type="text" />
+                </label>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <h3>Seed</h3>
+            <div class="row">
+              <label class="radio">
+                <input type="radio" name="seed-mode" value="fixed" checked /> fixed
+              </label>
+              <label class="radio">
+                <input type="radio" name="seed-mode" value="randomize" /> randomize
+              </label>
+              <span id="seed-fixed-wrap" class="inline">
+                <span class="sub-label">value</span>
+                <input id="seed-value" type="number" value="42" />
+              </span>
+              <span id="seed-rand-wrap" class="inline">
+                <span class="sub-label">count</span>
+                <input id="seed-count" type="number" value="4" min="1" />
+              </span>
+            </div>
+          </section>
+
+          <div class="row-between zone-actions">
+            <span id="combo-counter" class="muted"></span>
             <button id="run-btn" class="primary">Run</button>
-          </span>
-        </div>
-
-        <section class="panel">
-          <h3>Run progress</h3>
-          <div class="progress">
-            <div id="progress-fill" class="progress-fill"></div>
           </div>
-          <p id="progress-label" class="muted small">idle</p>
-          <div id="run-log" class="run-log"></div>
+
+          <section class="panel">
+            <h3>Run progress</h3>
+            <div class="progress">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="progress-label" class="muted small">idle</p>
+            <div id="run-log" class="run-log"></div>
+          </section>
         </section>
       </main>
     </div>

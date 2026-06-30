@@ -119,10 +119,16 @@ class ComfyDeps:
         if isinstance(template, dict) and template:
             return template
         settings = self.store.get_settings()
-        tpl_ref = pipeline.workflow_template or settings.get("default_template")
+        run_cfg = settings.get("run") if isinstance(settings, dict) else None
+        run_path = run_cfg.get("workflow_path") if isinstance(run_cfg, dict) else None
+        tpl_ref = (
+            pipeline.workflow_template
+            or run_path
+            or settings.get("default_template")
+        )
         if not tpl_ref:
             raise ValueError(
-                "no template: pass a 'template' or set workflow_template/default_template"
+                "no template: pass a 'template' or set a run-time workflow"
             )
         return cfg.load_template(tpl_ref)
 
