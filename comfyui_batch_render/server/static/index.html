@@ -67,7 +67,9 @@
             <span id="capture-text" class="ok small"></span>
             <button id="capture-resync" class="small"
                     title="Pull the workflow currently open in ComfyUI">&#x21bb; Re-sync</button>
-            <button id="capture-clear" class="small">Use a file instead</button>
+            <!-- "Use a file instead" hidden for now: the manual path input is
+                 confusing without guidance. Re-enable when that flow is clearer. -->
+            <button id="capture-clear" class="small" hidden>Use a file instead</button>
             <span class="muted small">
               Edited the graph in ComfyUI? Click <strong>Re-sync</strong> to pull the latest.
             </span>

@@ -897,7 +897,7 @@ function wireEvents() {
   document.getElementById("new-btn").addEventListener("click", newPipeline);
   document.getElementById("save-btn").addEventListener("click", savePipeline);
   document.getElementById("detect-btn").addEventListener("click", detectSlots);
-  document.getElementById("capture-clear").addEventListener("click", clearCapture);
+  document.getElementById("capture-clear")?.addEventListener("click", clearCapture);
   document.getElementById("capture-resync").addEventListener("click", requestRecapture);
   document.getElementById("run-btn").addEventListener("click", runPipeline);
   document
