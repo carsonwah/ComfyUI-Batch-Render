@@ -1,67 +1,69 @@
-// ComfyUI frontend extension: adds a "Batch Render" button to the top action
-// bar that opens our standalone UI in a new tab.
+// ComfyUI frontend extension: adds a "Batch Render" entry that opens our
+// standalone UI in a new tab.
+//
+// Primary mechanism is the documented commands + menuCommands API (a top-menu
+// item). We also register a best-effort action-bar button and a DOM fallback so
+// a clickable entry shows up across frontend versions.
 import { app } from "../../scripts/app.js";
 
 const BRP_URL = "/batch-render";
-const ICON_SVG =
-  '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
-  '<rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/>' +
-  '<rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/>' +
-  '<rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/>' +
-  '<rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/>' +
-  "</svg>";
 
 function openBatchRender() {
-  window.open(window.location.origin + BRP_URL, "_blank");
+  const url = window.location.origin + BRP_URL;
+  console.info("[BatchRender] opening", url);
+  window.open(url, "_blank");
 }
 
 app.registerExtension({
   name: "BatchRender.TopMenu",
 
-  // Modern API: contribute a button to the action bar when available.
-  actionBarButtons() {
-    return [
-      {
-        id: "batch-render-open",
-        label: "Batch Render",
-        icon: "pi pi-th-large",
-        tooltip: "Open the Batch Render UI",
-        onClick: openBatchRender,
-      },
-    ];
-  },
+  // Documented, reliable: a top-menu command (appears under a "Batch Render"
+  // menu). Handler field is `function` (NOT `onClick`).
+  commands: [
+    {
+      id: "BatchRender.open",
+      label: "Open Batch Render UI",
+      icon: "pi pi-th-large",
+      function: openBatchRender,
+    },
+  ],
+  menuCommands: [{ path: ["Batch Render"], commands: ["BatchRender.open"] }],
+
+  // Best-effort: an icon button in the action bar on frontends that support it.
+  // Provide both handler field names; unknown keys are ignored harmlessly.
+  actionBarButtons: [
+    {
+      id: "BatchRender.open.actionbar",
+      label: "Batch Render",
+      icon: "pi pi-th-large",
+      tooltip: "Open the Batch Render UI",
+      function: openBatchRender,
+      onClick: openBatchRender,
+    },
+  ],
 
   async setup() {
-    // Fallback: if the action bar API did not pick up the button, inject a
-    // ComfyButton (or a plain button) into the menu manually.
+    console.info(
+      "[BatchRender] loaded. Use the top menu: 'Batch Render > Open Batch Render UI', " +
+        "or open " + window.location.origin + BRP_URL + " directly."
+    );
+    // DOM fallback: inject a plain button into the top menu bar.
     try {
-      if (document.getElementById("batch-render-open-btn")) return;
-
-      let btn = null;
-      try {
-        const { ComfyButton } = await import("../../scripts/ui/components/button.js");
-        btn = new ComfyButton({
-          icon: "view-grid",
-          content: "Batch Render",
-          tooltip: "Open the Batch Render UI",
-          action: openBatchRender,
-        }).element;
-      } catch (e) {
-        btn = document.createElement("button");
-        btn.innerHTML = ICON_SVG + " Batch Render";
-        btn.style.cssText =
-          "display:inline-flex;align-items:center;gap:4px;cursor:pointer;";
-        btn.onclick = openBatchRender;
-      }
-      btn.id = "batch-render-open-btn";
-
+      if (document.getElementById("brp-open-btn")) return;
       const menu =
         document.querySelector(".comfyui-menu-right") ||
-        document.querySelector(".comfyui-menu") ||
+        document.querySelector(".comfyui-body-top .comfyui-menu") ||
         document.querySelector(".comfy-menu");
-      if (menu) menu.appendChild(btn);
+      if (!menu) return;
+      const btn = document.createElement("button");
+      btn.id = "brp-open-btn";
+      btn.textContent = "Batch Render";
+      btn.title = "Open the Batch Render UI";
+      btn.style.cssText = "cursor:pointer;margin:0 4px;";
+      btn.addEventListener("click", openBatchRender);
+      menu.appendChild(btn);
     } catch (err) {
-      console.warn("[BatchRender] could not inject top-menu button:", err);
+      console.warn("[BatchRender] could not inject fallback button:", err);
     }
   },
 });
