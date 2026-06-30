@@ -19,6 +19,9 @@ dev = [
     "pytest>=8.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/REPLACE_WITH_OWNER/comfyui-batch-render"
+
 [project.scripts]
 brp = "comfyui_batch_render.cli:main"
 
@@ -26,9 +29,13 @@ brp = "comfyui_batch_render.cli:main"
 # Publisher id / icon are filled in at publish time; keeping the table here documents intent.
 [tool.comfy]
 DisplayName = "ComfyUI Batch Render"
+PublisherId = "REPLACE_WITH_PUBLISHER_ID"
 
 [tool.setuptools]
-packages = ["comfyui_batch_render"]
+packages = ["comfyui_batch_render", "comfyui_batch_render.server"]
+
+[tool.setuptools.package-data]
+"comfyui_batch_render.server" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

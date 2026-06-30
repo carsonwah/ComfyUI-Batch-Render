@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ComfyUI Batch Render</title>
+    <link rel="stylesheet" href="/brp_static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>ComfyUI Batch Render</h1>
+      <p id="health" class="status">checking server&hellip;</p>
+    </header>
+
+    <main>
+      <section>
+        <h2>Checkpoints (<span id="checkpoints-count">0</span>)</h2>
+        <ul id="checkpoints" class="model-list"></ul>
+      </section>
+
+      <section>
+        <h2>LoRAs (<span id="loras-count">0</span>)</h2>
+        <ul id="loras" class="model-list"></ul>
+      </section>
+
+      <section>
+        <h2>Saved pipelines (<span id="pipelines-count">0</span>)</h2>
+        <ul id="pipelines" class="model-list"></ul>
+      </section>
+    </main>
+
+    <script src="/brp_static/app.js"></script>
+  </body>
+</html>
