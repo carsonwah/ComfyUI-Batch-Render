@@ -1,0 +1,47 @@
+# --- Project planning / local docs (not for the public repo) ---
+init.md
+SOLUTION.md
+
+# --- Local-specific configuration & secrets (never commit) ---
+# Real config lives here; only the *.example.* templates are committed.
+config.yaml
+config.yml
+config.local.*
+*.local.yaml
+*.local.yml
+*.local.json
+.env
+.env.*
+secrets.*
+settings.json
+
+# --- Local pipelines / generated content ---
+/pipelines/
+/output/
+/outputs/
+/runs/
+*.api.json
+!*.example.api.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# --- Node (for future web UI build, if any) ---
+node_modules/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

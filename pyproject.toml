@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comfyui-batch-render"
+version = "0.1.0"
+description = "Batch-render anime/illustration images across base + scenario combinations on ComfyUI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "aiohttp>=3.9",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+brp = "comfyui_batch_render.cli:main"
+
+# ComfyUI Registry metadata (used in Stage 3 when published to the Custom Node Manager).
+# Publisher id / icon are filled in at publish time; keeping the table here documents intent.
+[tool.comfy]
+DisplayName = "ComfyUI Batch Render"
+
+[tool.setuptools]
+packages = ["comfyui_batch_render"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

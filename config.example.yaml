@@ -1,0 +1,14 @@
+# Copy this file to `config.yaml` (gitignored) and adjust for your machine.
+# Nothing machine-specific is ever committed to the repo.
+
+comfyui:
+  # Host/port of your running ComfyUI server. Read from here in standalone/CLI mode.
+  host: 127.0.0.1
+  port: 8188            # set to your ComfyUI's actual port
+
+# Where rendered images + manifests are written (relative paths are fine).
+output_dir: ./output
+
+# Default workflow template (exported from ComfyUI via "Save (API Format)").
+# Place your own file somewhere and point to it here.
+workflow_template: ./my-workflow.api.json
