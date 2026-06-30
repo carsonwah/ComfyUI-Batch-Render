@@ -148,10 +148,11 @@ function layerCard(kind, layer, index) {
         class: "btn-danger small",
         text: "Remove",
         on: {
-          click: () => {
-            state.editor[kind].splice(index, 1);
-            renderLayerList(kind);
-          },
+          click: (ev) =>
+            confirmDestructive(ev.currentTarget, () => {
+              state.editor[kind].splice(index, 1);
+              renderLayerList(kind);
+            }),
         },
       })
     );
@@ -231,10 +232,11 @@ function renderLoras(box, layer) {
           text: "x",
           title: "remove LoRA",
           on: {
-            click: () => {
-              layer.loras.splice(i, 1);
-              renderLoras(box, layer);
-            },
+            click: (ev) =>
+              confirmDestructive(ev.currentTarget, () => {
+                layer.loras.splice(i, 1);
+                renderLoras(box, layer);
+              }),
           },
         }),
       ])
@@ -395,46 +397,49 @@ function renderPipelineList() {
         class: "btn-danger small",
         text: "Del",
         title: "Delete pipeline",
-        on: { click: (ev) => armDelete(ev.currentTarget, p.name) },
+        on: { click: (ev) => confirmDestructive(ev.currentTarget, () => deletePipeline(p.name)) },
       }),
     ]);
     list.appendChild(row);
   }
 }
 
-// Two-step delete: first click arms the button, a second click within
-// CONFIRM_WINDOW_MS actually deletes. Auto-resets so a stray click is harmless.
+// Two-step confirm for destructive buttons. The first click arms the button
+// (it turns red and reads "Confirm?"); a second click within CONFIRM_WINDOW_MS
+// runs `onConfirm`. Anything else -- the timeout, or arming another button --
+// resets it, so a stray single click never destroys anything.
 const CONFIRM_WINDOW_MS = 4000;
+let armedBtn = null;
 let armedTimer = null;
 
-function disarmDelete(btn) {
+function disarmConfirm() {
   if (armedTimer) {
     clearTimeout(armedTimer);
     armedTimer = null;
   }
-  if (btn && btn.dataset.armed) {
-    delete btn.dataset.armed;
+  const btn = armedBtn;
+  armedBtn = null;
+  if (btn) {
     btn.classList.remove("armed");
-    btn.textContent = "Del";
-    btn.title = "Delete pipeline";
+    btn.textContent = btn.dataset.restoreText;
+    btn.title = btn.dataset.restoreTitle || "";
   }
 }
 
-function armDelete(btn, name) {
-  if (btn.dataset.armed) {
-    disarmDelete(btn);
-    deletePipeline(name);
+function confirmDestructive(btn, onConfirm) {
+  if (btn === armedBtn) {
+    disarmConfirm();
+    onConfirm();
     return;
   }
-  // Reset any other row that was left armed.
-  document
-    .querySelectorAll("#pipeline-list button.armed")
-    .forEach((b) => disarmDelete(b));
-  btn.dataset.armed = "1";
+  disarmConfirm(); // reset any other button left armed
+  btn.dataset.restoreText = btn.textContent;
+  btn.dataset.restoreTitle = btn.title;
   btn.classList.add("armed");
   btn.textContent = "Confirm?";
-  btn.title = "Click again to delete";
-  armedTimer = setTimeout(() => disarmDelete(btn), CONFIRM_WINDOW_MS);
+  btn.title = "Click again to confirm";
+  armedBtn = btn;
+  armedTimer = setTimeout(disarmConfirm, CONFIRM_WINDOW_MS);
 }
 
 async function loadPipeline(name) {
