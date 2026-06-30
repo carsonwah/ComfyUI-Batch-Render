@@ -20,7 +20,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/REPLACE_WITH_OWNER/comfyui-batch-render"
+Repository = "https://github.com/carsonwah/ComfyUI-Batch-Render"
 
 [project.scripts]
 brp = "comfyui_batch_render.cli:main"
@@ -29,7 +29,7 @@ brp = "comfyui_batch_render.cli:main"
 # Publisher id / icon are filled in at publish time; keeping the table here documents intent.
 [tool.comfy]
 DisplayName = "ComfyUI Batch Render"
-PublisherId = "REPLACE_WITH_PUBLISHER_ID"
+PublisherId = "carsonwah"
 
 [tool.setuptools]
 packages = ["comfyui_batch_render", "comfyui_batch_render.server"]
