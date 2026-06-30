@@ -8,27 +8,157 @@
   </head>
   <body>
     <header>
-      <h1>ComfyUI Batch Render</h1>
-      <p id="health" class="status">checking server&hellip;</p>
+      <div>
+        <h1>ComfyUI Batch Render</h1>
+        <p id="health" class="status">checking server&hellip;</p>
+      </div>
     </header>
 
-    <main>
-      <section>
-        <h2>Checkpoints (<span id="checkpoints-count">0</span>)</h2>
-        <ul id="checkpoints" class="model-list"></ul>
-      </section>
+    <div class="layout">
+      <!-- Sidebar: saved pipelines -->
+      <aside class="sidebar">
+        <div class="row-between">
+          <h2>Pipelines</h2>
+          <button id="new-btn" class="small">+ New</button>
+        </div>
+        <div id="pipeline-list" class="pipeline-list"></div>
 
-      <section>
-        <h2>LoRAs (<span id="loras-count">0</span>)</h2>
-        <ul id="loras" class="model-list"></ul>
-      </section>
+        <details class="settings">
+          <summary>Settings</summary>
+          <label class="field">
+            <span class="sub-label">Output dir</span>
+            <input id="set-output" type="text" placeholder="./output" />
+          </label>
+          <label class="field">
+            <span class="sub-label">Default template</span>
+            <input id="set-template" type="text" placeholder="path to .json/.yaml" />
+          </label>
+          <label class="field">
+            <span class="sub-label">ComfyUI host</span>
+            <input id="set-host" type="text" placeholder="127.0.0.1" />
+          </label>
+          <label class="field">
+            <span class="sub-label">ComfyUI port</span>
+            <input id="set-port" type="number" placeholder="(auto)" />
+          </label>
+          <div class="row-between">
+            <button id="settings-save" class="small">Save settings</button>
+            <span id="settings-status" class="muted small"></span>
+          </div>
+        </details>
+      </aside>
 
-      <section>
-        <h2>Saved pipelines (<span id="pipelines-count">0</span>)</h2>
-        <ul id="pipelines" class="model-list"></ul>
-      </section>
-    </main>
+      <!-- Main: pipeline editor -->
+      <main class="editor">
+        <div class="row-between">
+          <h2>Editor</h2>
+          <span id="editor-status" class="status"></span>
+        </div>
 
-    <script src="/brp_static/app.js"></script>
+        <label class="field">
+          <span class="sub-label">Pipeline name</span>
+          <input id="pl-name" type="text" placeholder="my-pipeline" />
+        </label>
+
+        <section class="panel">
+          <h3>Workflow template</h3>
+          <div class="row">
+            <input id="pl-template" type="text" class="grow"
+                   placeholder="path to API-format workflow (.json)" />
+            <button id="detect-btn" class="small">Detect slots</button>
+          </div>
+          <p id="detect-notes" class="muted small"></p>
+
+          <details id="advanced" class="advanced">
+            <summary>Advanced / slot mapping</summary>
+            <div class="grid2">
+              <label class="field">
+                <span class="sub-label">prompt node id</span>
+                <input id="nm-prompt" type="text" />
+              </label>
+              <label class="field">
+                <span class="sub-label">negative node id</span>
+                <input id="nm-negative" type="text" />
+              </label>
+              <label class="field">
+                <span class="sub-label">seed (sampler) node id</span>
+                <input id="nm-seed" type="text" />
+              </label>
+              <label class="field">
+                <span class="sub-label">ckpt node id</span>
+                <input id="nm-ckpt" type="text" />
+              </label>
+              <label class="field">
+                <span class="sub-label">model_src (id,idx)</span>
+                <input id="nm-model-src" type="text" placeholder="4,0" />
+              </label>
+              <label class="field">
+                <span class="sub-label">clip_src (id,idx)</span>
+                <input id="nm-clip-src" type="text" placeholder="4,1" />
+              </label>
+              <label class="field">
+                <span class="sub-label">default checkpoint</span>
+                <input id="pl-default-ckpt" type="text" />
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel">
+          <h3>Seed</h3>
+          <div class="row">
+            <label class="radio">
+              <input type="radio" name="seed-mode" value="fixed" checked /> fixed
+            </label>
+            <label class="radio">
+              <input type="radio" name="seed-mode" value="randomize" /> randomize
+            </label>
+            <span id="seed-fixed-wrap" class="inline">
+              <span class="sub-label">value</span>
+              <input id="seed-value" type="number" value="42" />
+            </span>
+            <span id="seed-rand-wrap" class="inline">
+              <span class="sub-label">count</span>
+              <input id="seed-count" type="number" value="4" min="1" />
+            </span>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="row-between">
+            <h3>Bases</h3>
+            <button id="add-base" class="small">+ Base</button>
+          </div>
+          <div id="bases-list" class="layer-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="row-between">
+            <h3>Scenarios</h3>
+            <button id="add-scenario" class="small">+ Scenario</button>
+          </div>
+          <div id="scenarios-list" class="layer-list"></div>
+        </section>
+
+        <div class="row-between sticky-actions">
+          <span id="combo-counter" class="muted"></span>
+          <span>
+            <button id="save-btn">Save</button>
+            <button id="run-btn" class="primary">Run</button>
+          </span>
+        </div>
+
+        <section class="panel">
+          <h3>Run progress</h3>
+          <div class="progress">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+          <p id="progress-label" class="muted small">idle</p>
+          <div id="run-log" class="run-log"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/brp_static/app.js"></script>
   </body>
 </html>

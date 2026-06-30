@@ -17,6 +17,8 @@ from typing import Any, Awaitable, Callable, Protocol
 from aiohttp import WSMsgType, web
 
 from .. import __version__
+from .. import config as _config
+from ..detect import detect_node_map
 from ..store import Store
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -243,6 +245,37 @@ async def _delete_pipeline(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def _detect(request: web.Request) -> web.Response:
+    """Auto-detect a node map from a posted template dict or a template path."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+    if not isinstance(body, dict):
+        return web.json_response({"error": "body must be an object"}, status=400)
+
+    template = body.get("template")
+    if template is None:
+        path = body.get("path")
+        if not isinstance(path, str) or not path:
+            return web.json_response(
+                {"error": "provide a 'template' dict or a 'path' string"},
+                status=400,
+            )
+        try:
+            template = _config.load_template(path)
+        except Exception as exc:
+            return web.json_response(
+                {"error": f"could not load template: {exc}"}, status=400
+            )
+    if not isinstance(template, dict):
+        return web.json_response(
+            {"error": "'template' must be an object"}, status=400
+        )
+
+    return web.json_response(detect_node_map(template))
+
+
 async def _run(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -325,6 +358,7 @@ def register_routes(
     app.router.add_get("/api/brp/pipelines/{name}", _get_pipeline)
     app.router.add_put("/api/brp/pipelines/{name}", _put_pipeline)
     app.router.add_delete("/api/brp/pipelines/{name}", _delete_pipeline)
+    app.router.add_post("/api/brp/detect", _detect)
     app.router.add_post("/api/brp/run", _run)
     app.router.add_get("/api/brp/runs/{run_id}", _run_status)
     app.router.add_get("/ws/brp-progress", _ws_progress)

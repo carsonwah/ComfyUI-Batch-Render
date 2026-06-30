@@ -146,6 +146,47 @@ def test_index_and_static(tmp_path):
     asyncio.run(go())
 
 
+def test_detect_template_dict(tmp_path):
+    template = {
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "x.safetensors"},
+        },
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1]}},
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 0,
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "model": ["4", 0],
+            },
+        },
+    }
+
+    async def go():
+        async with _Server(_build(tmp_path)) as srv, aiohttp.ClientSession() as sess:
+            async with sess.post(
+                srv.url("/api/brp/detect"), json={"template": template}
+            ) as r:
+                assert r.status == 200
+                body = await r.json()
+                assert body["node_map"]["prompt"] == "6"
+                assert body["node_map"]["seed"] == "3"
+                assert body["default_checkpoint"] == "x.safetensors"
+
+            # Bad path -> 400.
+            async with sess.post(
+                srv.url("/api/brp/detect"),
+                json={"path": "does/not/exist.json"},
+            ) as r:
+                assert r.status == 400
+                assert "error" in await r.json()
+
+    asyncio.run(go())
+
+
 def test_run_and_websocket_progress(tmp_path):
     async def go():
         async with _Server(_build(tmp_path)) as srv, aiohttp.ClientSession() as sess:

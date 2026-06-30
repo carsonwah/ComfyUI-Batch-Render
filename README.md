@@ -19,7 +19,7 @@ Early build. Implemented incrementally as composable tiers:
 | 0 | Graph patcher (pure functions) | done |
 | 1 | Run engine + CLI | done |
 | 2 | ComfyUI plugin shell (web server) | done |
-| 3 | Web UI | planned |
+| 3 | Web UI | done |
 
 ## Design
 
