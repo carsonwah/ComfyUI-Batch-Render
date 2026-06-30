@@ -25,7 +25,7 @@ const LAYERS_PATHS =
   '<path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>';
 
 const LAYERS_SVG =
-  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" ' +
   'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   LAYERS_PATHS +
   "</svg>";
@@ -48,7 +48,7 @@ function ensureIconStyle() {
     style.id = "brp-icon-style";
     style.textContent =
       "." + BRP_ICON_CLASS + "{" +
-      "display:inline-block;width:1em;height:1em;" +
+      "display:inline-block;width:1.25rem;height:1.25rem;vertical-align:middle;" +
       "background-color:currentColor;" +
       "-webkit-mask:" + url + " center/contain no-repeat;" +
       "mask:" + url + " center/contain no-repeat;}";
@@ -147,7 +147,9 @@ app.registerExtension({
       btn.title = "Open the Batch Render UI";
       btn.setAttribute("aria-label", "Open the Batch Render UI");
       btn.style.cssText =
-        "display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin:0 4px;";
+        "display:inline-flex;align-items:center;justify-content:center;cursor:pointer;" +
+        "width:2rem;height:2rem;padding:0;margin:0 4px;" +
+        "background:transparent;border:none;color:inherit;opacity:1;";
       btn.addEventListener("click", openBatchRender);
       menu.appendChild(btn);
     } catch (err) {
