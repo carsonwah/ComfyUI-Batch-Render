@@ -8,6 +8,12 @@ import { app } from "../../scripts/app.js";
 
 const BRP_URL = "/batch-render";
 
+// "repeat" icon (Material-style), used for the DOM-fallback button.
+const REPEAT_SVG =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">' +
+  '<path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>' +
+  "</svg>";
+
 function openBatchRender() {
   const url = window.location.origin + BRP_URL;
   console.info("[BatchRender] opening", url);
@@ -23,19 +29,18 @@ app.registerExtension({
     {
       id: "BatchRender.open",
       label: "Open Batch Render UI",
-      icon: "pi pi-th-large",
+      icon: "pi pi-replay",
       function: openBatchRender,
     },
   ],
   menuCommands: [{ path: ["Batch Render"], commands: ["BatchRender.open"] }],
 
-  // Best-effort: an icon button in the action bar on frontends that support it.
-  // Provide both handler field names; unknown keys are ignored harmlessly.
+  // Best-effort: an icon-only button in the action bar on frontends that
+  // support it. Provide both handler field names; unknown keys are ignored.
   actionBarButtons: [
     {
       id: "BatchRender.open.actionbar",
-      label: "Batch Render",
-      icon: "pi pi-th-large",
+      icon: "pi pi-replay",
       tooltip: "Open the Batch Render UI",
       function: openBatchRender,
       onClick: openBatchRender,
@@ -57,9 +62,11 @@ app.registerExtension({
       if (!menu) return;
       const btn = document.createElement("button");
       btn.id = "brp-open-btn";
-      btn.textContent = "Batch Render";
+      btn.innerHTML = REPEAT_SVG;
       btn.title = "Open the Batch Render UI";
-      btn.style.cssText = "cursor:pointer;margin:0 4px;";
+      btn.setAttribute("aria-label", "Open the Batch Render UI");
+      btn.style.cssText =
+        "display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin:0 4px;";
       btn.addEventListener("click", openBatchRender);
       menu.appendChild(btn);
     } catch (err) {
