@@ -202,6 +202,12 @@ button.btn-danger {
   border-color: #5a2b2b;
   color: var(--danger);
 }
+button.btn-danger.armed {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
 button.small {
   padding: 0.25rem 0.6rem;
   font-size: 0.8rem;

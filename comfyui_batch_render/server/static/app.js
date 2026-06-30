@@ -385,11 +385,47 @@ function renderPipelineList() {
       el("button", {
         class: "btn-danger small",
         text: "Del",
-        on: { click: () => deletePipeline(p.name) },
+        title: "Delete pipeline",
+        on: { click: (ev) => armDelete(ev.currentTarget, p.name) },
       }),
     ]);
     list.appendChild(row);
   }
+}
+
+// Two-step delete: first click arms the button, a second click within
+// CONFIRM_WINDOW_MS actually deletes. Auto-resets so a stray click is harmless.
+const CONFIRM_WINDOW_MS = 4000;
+let armedTimer = null;
+
+function disarmDelete(btn) {
+  if (armedTimer) {
+    clearTimeout(armedTimer);
+    armedTimer = null;
+  }
+  if (btn && btn.dataset.armed) {
+    delete btn.dataset.armed;
+    btn.classList.remove("armed");
+    btn.textContent = "Del";
+    btn.title = "Delete pipeline";
+  }
+}
+
+function armDelete(btn, name) {
+  if (btn.dataset.armed) {
+    disarmDelete(btn);
+    deletePipeline(name);
+    return;
+  }
+  // Reset any other row that was left armed.
+  document
+    .querySelectorAll("#pipeline-list button.armed")
+    .forEach((b) => disarmDelete(b));
+  btn.dataset.armed = "1";
+  btn.classList.add("armed");
+  btn.textContent = "Confirm?";
+  btn.title = "Click again to delete";
+  armedTimer = setTimeout(() => disarmDelete(btn), CONFIRM_WINDOW_MS);
 }
 
 async function loadPipeline(name) {
