@@ -36,7 +36,8 @@ function blankPipeline() {
     },
     seed: { mode: "fixed", value: 42, count: 4 },
     default_checkpoint: "",
-    bases: [],
+    // Exactly one base, always present -- it's a single set of params, not a list.
+    bases: [blankLayer("base")],
     scenarios: [],
   };
 }
@@ -78,13 +79,14 @@ function seedCount() {
 }
 
 function updateCombos() {
-  const b = state.editor.bases.length;
+  // The base is always a single set of params, so it never multiplies the count.
+  const b = Math.max(1, state.editor.bases.length);
   const s = state.editor.scenarios.length;
   const seeds = seedCount();
   const total = b * s * seeds;
   const node = document.getElementById("combo-counter");
   if (node) {
-    node.textContent = `combinations: ${b} bases x ${s} scenarios x ${seeds} seeds = ${total}`;
+    node.textContent = `combinations: 1 base x ${s} scenarios x ${seeds} seeds = ${total}`;
   }
 }
 
@@ -127,18 +129,21 @@ function layerCard(kind, layer, index) {
   const lorasBox = el("div", { class: "loras-box" });
   renderLoras(lorasBox, layer);
 
-  return el("div", { class: "card" }, [
-    el("div", { class: "card-head" }, [
-      el("input", {
-        type: "text",
-        class: "card-title",
-        value: layer.name,
-        on: {
-          input: (e) => {
-            layer.name = e.target.value;
-          },
+  const head = [
+    el("input", {
+      type: "text",
+      class: "card-title",
+      value: layer.name,
+      on: {
+        input: (e) => {
+          layer.name = e.target.value;
         },
-      }),
+      },
+    }),
+  ];
+  // The base is a single, always-present set of params -- it can't be removed.
+  if (kind !== "bases") {
+    head.push(
       el("button", {
         class: "btn-danger small",
         text: "Remove",
@@ -148,8 +153,12 @@ function layerCard(kind, layer, index) {
             renderLayerList(kind);
           },
         },
-      }),
-    ]),
+      })
+    );
+  }
+
+  return el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, head),
     field("Checkpoint", ckSel),
     field("Positive", posInput),
     field("Negative", negInput),
@@ -464,7 +473,8 @@ function normalizeLoaded(p) {
       count: seed.count == null ? 4 : seed.count,
     },
     default_checkpoint: p.default_checkpoint || "",
-    bases: (p.bases || []).map(normalizeLayer),
+    // Always exactly one base; keep the first if a legacy pipeline had several.
+    bases: [(p.bases || []).map(normalizeLayer)[0] || blankLayer("base")],
     scenarios: (p.scenarios || []).map(normalizeLayer),
   };
 }
@@ -890,12 +900,6 @@ function wireEvents() {
   document.getElementById("capture-clear").addEventListener("click", clearCapture);
   document.getElementById("capture-resync").addEventListener("click", requestRecapture);
   document.getElementById("run-btn").addEventListener("click", runPipeline);
-  document
-    .getElementById("add-base")
-    .addEventListener("click", () => {
-      state.editor.bases.push(blankLayer(`base ${state.editor.bases.length + 1}`));
-      renderLayerList("bases");
-    });
   document
     .getElementById("add-scenario")
     .addEventListener("click", () => {
