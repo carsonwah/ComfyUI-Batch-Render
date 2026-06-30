@@ -157,9 +157,14 @@ class ComfyDeps:
         """Pull trigger words, preferring LoRA Manager's ``civitai.trainedWords``."""
         words = civitai.get("trainedWords")
         if isinstance(words, list) and words:
-            joined = ", ".join(str(w).strip() for w in words if str(w).strip())
-            if joined:
-                return joined
+            # Keep each trainedWords entry on its own line so the user can see
+            # the distinct trigger-word sets and delete the ones they don't
+            # want. The ",\n" separator stays valid in the prompt (the newline
+            # is just whitespace to CLIP) if they leave several in place.
+            parts = [str(w).strip().rstrip(",").strip() for w in words]
+            parts = [p for p in parts if p]
+            if parts:
+                return ",\n".join(parts)
         # Fall back to flat schemas other metadata tools use.
         for key in ("trigger_words", "triggerWords", "triggers", "activation_text"):
             val = data.get(key)

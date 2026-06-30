@@ -292,10 +292,17 @@ button.small.caret {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 5rem minmax(0, 1fr) auto;
   gap: 0.35rem;
-  align-items: center;
+  align-items: start;
 }
 .lora-weight {
   width: 100%;
+}
+.lora-triggers {
+  width: 100%;
+  min-height: 2.4rem;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.3;
 }
 
 /* LoRA autocomplete picker */

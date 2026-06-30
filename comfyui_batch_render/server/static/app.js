@@ -261,10 +261,10 @@ function renderLoras(box, layer) {
     return;
   }
   layer.loras.forEach((lora, i) => {
-    const triggers = el("input", {
-      type: "text",
+    const triggers = el("textarea", {
       class: "lora-triggers",
       placeholder: "triggers",
+      rows: "2",
       value: lora.triggers,
       on: { input: () => (lora.triggers = triggers.value) },
     });
