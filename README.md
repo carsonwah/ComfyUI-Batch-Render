@@ -16,7 +16,7 @@ Early build. Implemented incrementally as composable tiers:
 
 | Tier | What | Status |
 |------|------|--------|
-| 0 | Graph patcher (pure functions) | in progress |
+| 0 | Graph patcher (pure functions) | done |
 | 1 | Run engine + CLI | planned |
 | 2 | ComfyUI plugin shell (web server) | planned |
 | 3 | Web UI | planned |
