@@ -1,0 +1,50 @@
+# Example pipeline: render a couple of base characters across two scenarios.
+# All names/paths here are GENERIC PLACEHOLDERS -- nothing machine-specific.
+#
+# Run it offline (no ComfyUI needed):
+#   brp dry-run --pipeline examples/pipeline.example.yaml --output ./output
+#
+# Or expand it to see the job matrix:
+#   brp expand --pipeline examples/pipeline.example.yaml
+
+name: example-portraits
+
+# Path is resolved relative to THIS file when no --template flag is given.
+workflow_template: portrait.example.api.json
+
+# Optional fallback checkpoint when a layer doesn't specify one.
+default_checkpoint: PUT_YOUR_CHECKPOINT.safetensors
+
+# Where each value lands in the template above.
+node_map:
+  prompt: "6"
+  negative: "7"
+  seed: "3"
+  model_src: ["4", 0]
+  clip_src: ["4", 1]
+  ckpt: "4"
+
+# Base layers: the "who/what" -- character + identity LoRAs.
+bases:
+  - name: Character A
+    prompt: "1girl, solo, masterpiece, best quality, detailed illustration"
+    negative: "lowres, bad anatomy, worst quality"
+    loras:
+      - file: "characters/example-char.safetensors"
+        weight: 0.8
+        triggers: "examplechar"
+  - name: Character B
+    prompt: "1boy, solo, masterpiece, best quality, detailed illustration"
+    negative: "lowres, bad anatomy, worst quality"
+
+# Scenario layers: the "where/how" -- setting + mood.
+scenarios:
+  - name: Forest Day
+    prompt: "in a sunlit forest, dappled light, lush greenery"
+  - name: City Night
+    prompt: "neon city street at night, rain, reflections, cinematic lighting"
+
+# Seed policy: "fixed" reuses one seed; "randomize" draws `count` per combo.
+seed:
+  mode: fixed
+  value: 42
