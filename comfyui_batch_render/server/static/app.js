@@ -254,6 +254,62 @@ function layerCard(kind, layer, index) {
   ]);
 }
 
+// A no-wrap triggers textarea with a line-number gutter down the left. Lines
+// don't wrap (wrap=off), so every logical line is exactly one fixed-height row
+// -- the gutter is just the numbers 1..N at the same line-height, scrolled in
+// lockstep with the textarea. Returns { element, setValue } so the picker can
+// auto-fill triggers programmatically and still refresh the numbers.
+function createTriggerEditor(initialValue, onInput) {
+  const gutterInner = el("div", { class: "lora-gutter-inner" });
+  const gutter = el("div", { class: "lora-gutter" }, [gutterInner]);
+  const textarea = el("textarea", {
+    class: "lora-triggers",
+    placeholder: "triggers",
+    rows: "2",
+    wrap: "off",
+    value: initialValue,
+  });
+  const wrap = el("div", { class: "lora-triggers-wrap" }, [gutter, textarea]);
+
+  function renderNumbers() {
+    const n = Math.max(1, textarea.value.split("\n").length);
+    let s = "";
+    for (let k = 1; k <= n; k++) s += (k > 1 ? "\n" : "") + k;
+    gutterInner.textContent = s;
+  }
+  function syncMetrics() {
+    // Mirror the textarea's text metrics so number rows line up with text rows.
+    const cs = getComputedStyle(textarea);
+    gutterInner.style.fontFamily = cs.fontFamily;
+    gutterInner.style.fontSize = cs.fontSize;
+    gutterInner.style.lineHeight = cs.lineHeight;
+    gutterInner.style.paddingTop = cs.paddingTop;
+  }
+  function syncScroll() {
+    gutterInner.style.transform = `translateY(${-textarea.scrollTop}px)`;
+  }
+
+  textarea.addEventListener("input", () => {
+    onInput(textarea.value);
+    renderNumbers();
+  });
+  textarea.addEventListener("scroll", syncScroll);
+  requestAnimationFrame(() => {
+    syncMetrics();
+    renderNumbers();
+    syncScroll();
+  });
+
+  return {
+    element: wrap,
+    setValue(v) {
+      textarea.value = v;
+      renderNumbers();
+      syncScroll();
+    },
+  };
+}
+
 function renderLoras(box, layer) {
   clear(box);
   if (layer.loras.length === 0) {
@@ -261,15 +317,8 @@ function renderLoras(box, layer) {
     return;
   }
   layer.loras.forEach((lora, i) => {
-    const triggers = el("textarea", {
-      class: "lora-triggers",
-      placeholder: "triggers",
-      rows: "2",
-      // Don't soft-wrap: each trainedWords version stays on its own line so
-      // it's obvious where one ends and the next begins (scroll for long ones).
-      wrap: "off",
-      value: lora.triggers,
-      on: { input: () => (lora.triggers = triggers.value) },
+    const triggerEditor = createTriggerEditor(lora.triggers, (v) => {
+      lora.triggers = v;
     });
 
     const picker = createLoraPicker(lora.file, (file) => {
@@ -277,7 +326,7 @@ function renderLoras(box, layer) {
       // Auto-fill triggers from the chosen model (editable afterwards).
       const t = loraTriggersFor(file);
       lora.triggers = t;
-      triggers.value = t;
+      triggerEditor.setValue(t);
     });
 
     const weight = el("input", {
@@ -297,7 +346,7 @@ function renderLoras(box, layer) {
       el("div", { class: "lora-row" }, [
         picker,
         weight,
-        triggers,
+        triggerEditor.element,
         el("button", {
           class: "btn-danger small",
           text: "x",
