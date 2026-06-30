@@ -540,13 +540,38 @@ function clearCapture() {
   if (!state.captured) return;
   state.captured = null;
   setCaptureUI();
+  // Also drop the server-side slot so a later reload doesn't resurface it.
+  api.clearCapture().catch(() => {});
+  try {
+    window.localStorage.removeItem(CAPTURE_KEY);
+  } catch (_e) {}
   const input = document.getElementById("pl-template");
   if (input) input.focus();
 }
 
-// Read the one-shot handoff the ComfyUI extension left in localStorage. Best
-// effort: bad/missing data just leaves the manual field in place.
-function consumeCapture() {
+// Pick up the workflow handed off from the ComfyUI canvas. Two channels:
+//   1. Server relay (GET /api/brp/capture) -- the only one that works when this
+//      page is in a different browser process than ComfyUI (desktop app case).
+//      The slot persists until replaced/cleared, so a page refresh keeps it.
+//   2. localStorage -- same-origin fast path / offline fallback.
+// Best effort: bad/missing data just leaves the manual field in place.
+async function consumeCapture() {
+  // Primary: server relay.
+  try {
+    const res = await api.getCapture();
+    const template = res && res.captured && res.captured.template;
+    if (template && typeof template === "object" && Object.keys(template).length) {
+      // Drain the stale same-origin copy so the channels can't disagree later.
+      try {
+        window.localStorage.removeItem(CAPTURE_KEY);
+      } catch (_e) {}
+      applyCapture(template);
+      return true;
+    }
+  } catch (_e) {
+    /* server unreachable / no capture -- fall through to localStorage */
+  }
+  // Secondary: same-origin localStorage. Read-once to avoid resurfacing it.
   let raw = null;
   try {
     raw = window.localStorage.getItem(CAPTURE_KEY);
@@ -824,7 +849,7 @@ async function main() {
 
   // Pick up a workflow handed off from the ComfyUI canvas, if any, and map its
   // slots straight away so the user lands on a ready-to-edit pipeline.
-  if (consumeCapture()) {
+  if (await consumeCapture()) {
     setEditorStatus("loaded the workflow open in ComfyUI", "ok");
     await detectSlots();
   }

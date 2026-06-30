@@ -27,6 +27,13 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEPS_KEY = web.AppKey("brp_deps", object)
 RUNS_KEY = web.AppKey("brp_runs", object)
 STATIC_KEY = web.AppKey("brp_static_dir", Path)
+# A single-slot buffer holding the workflow most recently captured from the
+# ComfyUI canvas. This is the cross-process handoff that replaces a same-origin
+# ``localStorage`` key: the ComfyUI frontend POSTs the open graph here, and the
+# Batch Render UI -- which may be a *different* browser process (desktop app's
+# webview vs. the external browser) -- GETs it on load. The dict holder lets the
+# value be replaced in place without re-binding the app key.
+CAPTURE_KEY = web.AppKey("brp_capture", dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -276,6 +283,45 @@ async def _detect(request: web.Request) -> web.Response:
     return web.json_response(detect_node_map(template))
 
 
+async def _get_capture(request: web.Request) -> web.Response:
+    """Return the workflow last captured from the ComfyUI canvas, if any."""
+    return web.json_response({"captured": request.app[CAPTURE_KEY].get("current")})
+
+
+async def _post_capture(request: web.Request) -> web.Response:
+    """Store a workflow captured from the ComfyUI canvas for the UI to pick up.
+
+    The ComfyUI frontend extension POSTs ``{template, source?, ts?}`` here right
+    before opening the Batch Render UI. We keep only the latest capture (single
+    user per server), replacing any previous one.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+    if not isinstance(body, dict):
+        return web.json_response({"error": "body must be an object"}, status=400)
+
+    template = body.get("template")
+    if not isinstance(template, dict) or not template:
+        return web.json_response(
+            {"error": "'template' must be a non-empty object"}, status=400
+        )
+
+    request.app[CAPTURE_KEY]["current"] = {
+        "template": template,
+        "source": body.get("source") or "comfyui-canvas",
+        "ts": body.get("ts"),
+    }
+    return web.json_response({"ok": True, "nodes": len(template)})
+
+
+async def _delete_capture(request: web.Request) -> web.Response:
+    """Clear the captured workflow (used when the user opts back to a path)."""
+    request.app[CAPTURE_KEY]["current"] = None
+    return web.json_response({"ok": True})
+
+
 async def _run(request: web.Request) -> web.Response:
     try:
         body = await request.json()
@@ -347,6 +393,7 @@ def register_routes(
     app[DEPS_KEY] = deps
     app[RUNS_KEY] = RunManager()
     app[STATIC_KEY] = static
+    app[CAPTURE_KEY] = {"current": None}
 
     app.router.add_get("/batch-render", _index)
     app.router.add_get("/api/brp/health", _health)
@@ -359,6 +406,9 @@ def register_routes(
     app.router.add_put("/api/brp/pipelines/{name}", _put_pipeline)
     app.router.add_delete("/api/brp/pipelines/{name}", _delete_pipeline)
     app.router.add_post("/api/brp/detect", _detect)
+    app.router.add_get("/api/brp/capture", _get_capture)
+    app.router.add_post("/api/brp/capture", _post_capture)
+    app.router.add_delete("/api/brp/capture", _delete_capture)
     app.router.add_post("/api/brp/run", _run)
     app.router.add_get("/api/brp/runs/{run_id}", _run_status)
     app.router.add_get("/ws/brp-progress", _ws_progress)

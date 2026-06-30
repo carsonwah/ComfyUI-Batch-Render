@@ -35,6 +35,8 @@ export const api = {
   deletePipeline: (name) =>
     request("DELETE", `/pipelines/${encodeURIComponent(name)}`),
   detect: (payload) => request("POST", "/detect", payload),
+  getCapture: () => request("GET", "/capture"),
+  clearCapture: () => request("DELETE", "/capture"),
   run: (payload) => request("POST", "/run", payload),
   getSettings: () => request("GET", "/settings"),
   saveSettings: (patch) => request("POST", "/settings", patch),

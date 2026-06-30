@@ -8,10 +8,17 @@ import { app } from "../../scripts/app.js";
 
 const BRP_URL = "/batch-render";
 
-// Same-origin handoff: the Batch Render UI reads this key once on load to pick
-// up the workflow currently open on the canvas (so the user never has to find
-// or export an "API-format" file). See server/static/app.js (consumeCapture).
+// Workflow handoff to the Batch Render UI so the user never has to find or
+// export an "API-format" file. Two channels, in order of robustness:
+//   1. Server relay (POST /api/brp/capture): works even when the UI opens in a
+//      *different* browser process than ComfyUI -- e.g. the desktop app's
+//      Electron webview vs. the external system browser that window.open
+//      launches. localStorage cannot bridge that gap (separate storage).
+//   2. localStorage (same-origin only): a belt-and-suspenders fast path for the
+//      all-in-one-browser case.
+// See server/static/app.js (consumeCapture) and server/app.py (_post_capture).
 const CAPTURE_KEY = "brp_captured_workflow";
+const CAPTURE_API = "/api/brp/capture";
 
 // "layers" icon (Lucide). We reuse one source-of-truth path set for both:
 //   - the DOM-fallback button (inline SVG, see LAYERS_SVG), and
@@ -62,8 +69,8 @@ function ensureIconStyle() {
 // and stash it for the Batch Render tab. Any failure is non-fatal -- the UI
 // falls back to its manual template-path field.
 async function captureCurrentWorkflow() {
-  // Clear any stale capture first so a failure here never resurfaces an old
-  // workflow in the new tab.
+  // Clear any stale same-origin capture first so a failure here never
+  // resurfaces an old workflow in the new tab.
   try {
     window.localStorage.removeItem(CAPTURE_KEY);
   } catch (_e) {}
@@ -78,14 +85,30 @@ async function captureCurrentWorkflow() {
     ) {
       return false;
     }
-    window.localStorage.setItem(
-      CAPTURE_KEY,
-      JSON.stringify({
-        template: apiGraph,
-        source: "comfyui-canvas",
-        ts: Date.now(),
-      })
-    );
+    const payload = {
+      template: apiGraph,
+      source: "comfyui-canvas",
+      ts: Date.now(),
+    };
+    // Primary channel: hand off through the server so a cross-process UI (the
+    // desktop app opens the page in the external browser) can still read it. We
+    // await this so the slot is filled before window.open below.
+    try {
+      const res = await fetch(CAPTURE_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        console.warn("[BatchRender] server capture returned", res.status);
+      }
+    } catch (err) {
+      console.warn("[BatchRender] server capture failed:", err);
+    }
+    // Secondary channel: same-origin fast path for the all-in-one-browser case.
+    try {
+      window.localStorage.setItem(CAPTURE_KEY, JSON.stringify(payload));
+    } catch (_e) {}
     return true;
   } catch (err) {
     console.warn("[BatchRender] could not capture current workflow:", err);

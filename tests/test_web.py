@@ -187,6 +187,45 @@ def test_detect_template_dict(tmp_path):
     asyncio.run(go())
 
 
+def test_capture_roundtrip(tmp_path):
+    template = {"3": {"class_type": "KSampler", "inputs": {"seed": 0}}}
+
+    async def go():
+        async with _Server(_build(tmp_path)) as srv, aiohttp.ClientSession() as sess:
+            # Empty slot to start.
+            async with sess.get(srv.url("/api/brp/capture")) as r:
+                assert r.status == 200
+                assert (await r.json())["captured"] is None
+
+            # POST stores the latest capture; GET returns it (survives reload).
+            async with sess.post(
+                srv.url("/api/brp/capture"),
+                json={"template": template, "source": "comfyui-canvas", "ts": 42},
+            ) as r:
+                assert r.status == 200
+                assert (await r.json())["nodes"] == 1
+            for _ in range(2):  # idempotent across repeated reads
+                async with sess.get(srv.url("/api/brp/capture")) as r:
+                    cap = (await r.json())["captured"]
+                    assert cap["template"] == template
+                    assert cap["source"] == "comfyui-canvas"
+                    assert cap["ts"] == 42
+
+            # An empty/missing template is rejected.
+            async with sess.post(
+                srv.url("/api/brp/capture"), json={"template": {}}
+            ) as r:
+                assert r.status == 400
+
+            # DELETE clears the slot.
+            async with sess.delete(srv.url("/api/brp/capture")) as r:
+                assert r.status == 200
+            async with sess.get(srv.url("/api/brp/capture")) as r:
+                assert (await r.json())["captured"] is None
+
+    asyncio.run(go())
+
+
 def test_run_and_websocket_progress(tmp_path):
     async def go():
         async with _Server(_build(tmp_path)) as srv, aiohttp.ClientSession() as sess:
