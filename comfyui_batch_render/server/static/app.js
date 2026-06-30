@@ -493,6 +493,12 @@ function renderPipelineList() {
         on: { click: () => loadPipeline(p.name) },
       }),
       el("button", {
+        class: "small",
+        text: "Clone",
+        title: "Clone into a new pipeline",
+        on: { click: () => clonePipeline(p.name) },
+      }),
+      el("button", {
         class: "btn-danger small",
         text: "Del",
         title: "Delete pipeline",
@@ -553,6 +559,39 @@ async function loadPipeline(name) {
   } catch (err) {
     setEditorStatus(`load failed: ${err.message}`, "err");
   }
+}
+
+// Load an existing pipeline but treat it as brand new: copy its base +
+// scenarios into the editor under a fresh, non-colliding name and clear
+// loadedName so the next Save creates a new file instead of overwriting the
+// source. The user can rename before saving. Run-time config is untouched.
+async function clonePipeline(name) {
+  try {
+    const data = await api.getPipeline(name);
+    const loaded = normalizeLoaded(data.pipeline || {});
+    loaded.name = uniquePipelineName(loaded.name);
+    state.editor = loaded;
+    state.loadedName = null;
+    renderPipelineForm();
+    setEditorStatus(`cloned "${name}" -> "${loaded.name}" (unsaved)`, "ok");
+  } catch (err) {
+    setEditorStatus(`clone failed: ${err.message}`, "err");
+  }
+}
+
+// Derive a name not already used by a saved pipeline: "X" -> "X copy",
+// "X copy 2", "X copy 3", ... Comparison is case-insensitive on the name.
+function uniquePipelineName(base) {
+  const taken = new Set(
+    state.pipelines.map((p) => String(p.name || "").toLowerCase())
+  );
+  let candidate = `${base} copy`;
+  let n = 2;
+  while (taken.has(candidate.toLowerCase())) {
+    candidate = `${base} copy ${n}`;
+    n += 1;
+  }
+  return candidate;
 }
 
 // Merge a stored pipeline dict onto a blank template. Only name + base +
