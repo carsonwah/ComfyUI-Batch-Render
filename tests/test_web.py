@@ -16,21 +16,44 @@ from comfyui_batch_render.server.app import create_app
 from comfyui_batch_render.store import Store
 
 _CANNED = {
-    "loras": [{"name": "a.safetensors", "subfolder": "char", "triggers": "trig"}],
-    "checkpoints": [{"name": "ckpt.safetensors", "subfolder": "", "triggers": ""}],
+    "loras": [
+        {
+            "file": "char/a.safetensors",
+            "name": "a.safetensors",
+            "subfolder": "char",
+            "model_name": "Alpha",
+            "base_model": "Illustrious",
+            "tags": ["anime"],
+            "triggers": "trig",
+            "preview": True,
+            "nsfw_level": 0,
+        }
+    ],
+    "checkpoints": [
+        {"file": "ckpt.safetensors", "name": "ckpt.safetensors", "subfolder": "", "triggers": ""}
+    ],
 }
 
 _FAKE_MANIFEST = {"pipeline": "p", "job_count": 2, "jobs": []}
 
 
 class FakeDeps:
-    def __init__(self, store: Store, *, recapture_ok: bool = True) -> None:
+    def __init__(
+        self, store: Store, *, recapture_ok: bool = True, preview: str | None = None
+    ) -> None:
         self.store = store
         self.recapture_ok = recapture_ok
         self.recapture_calls = 0
+        self.preview = preview
 
     def list_models(self, kind: str) -> list[dict]:
         return _CANNED[kind]
+
+    def preview_path(self, kind: str, file: str) -> str | None:
+        # Only the canned "char/a.safetensors" has a (test-injected) preview.
+        if kind == "loras" and file == "char/a.safetensors":
+            return self.preview
+        return None
 
     def comfy_target(self):
         return ("127.0.0.1", 8188)
@@ -68,13 +91,13 @@ class _Server:
         return f"http://127.0.0.1:{self.port}{path}"
 
 
-def _build(tmp_path):
+def _build(tmp_path, *, preview: str | None = None):
     static = tmp_path / "static"
     static.mkdir()
     (static / "index.html").write_text("<h1>ComfyUI Batch Render</h1>", encoding="utf-8")
     (static / "style.css").write_text("body{}", encoding="utf-8")
     store = Store(tmp_path / "cfg")
-    app = create_app(FakeDeps(store), static_dir=static)
+    app = create_app(FakeDeps(store, preview=preview), static_dir=static)
     return app
 
 
@@ -92,6 +115,35 @@ def test_health_and_models(tmp_path):
             async with sess.get(srv.url("/api/brp/models?kind=checkpoints")) as r:
                 assert (await r.json())["models"] == _CANNED["checkpoints"]
             async with sess.get(srv.url("/api/brp/models?kind=bogus")) as r:
+                assert r.status == 400
+
+    asyncio.run(go())
+
+
+def test_preview(tmp_path):
+    img = tmp_path / "a.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n_fake_png_bytes")
+
+    async def go():
+        async with _Server(_build(tmp_path, preview=str(img))) as srv, aiohttp.ClientSession() as sess:
+            # Resolvable preview streams the file bytes.
+            async with sess.get(
+                srv.url("/api/brp/preview?kind=loras&file=char/a.safetensors")
+            ) as r:
+                assert r.status == 200
+                assert (await r.read()).startswith(b"\x89PNG")
+            # Known kind, but no preview for this file -> 404.
+            async with sess.get(
+                srv.url("/api/brp/preview?kind=loras&file=char/missing.safetensors")
+            ) as r:
+                assert r.status == 404
+            # Missing file param -> 400.
+            async with sess.get(srv.url("/api/brp/preview?kind=loras")) as r:
+                assert r.status == 400
+            # Bogus kind -> 400.
+            async with sess.get(
+                srv.url("/api/brp/preview?kind=bogus&file=x")
+            ) as r:
                 assert r.status == 400
 
     asyncio.run(go())

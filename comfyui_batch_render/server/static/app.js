@@ -61,23 +61,50 @@ function blankLayer(name) {
 // Model select helpers
 // --------------------------------------------------------------------------- //
 
-// NOTE: model.name is rendered as-is. It already encodes any subfolder, so we
-// must NOT prepend model.subfolder again (that was the old duplication bug).
+// model.name is the bare basename for display; model.file is the full relative
+// path ComfyUI's loaders expect (e.g. "char/foo.safetensors"). Selections store
+// model.file so LoRAs/checkpoints in subfolders actually load.
 function checkpointOptions(selected) {
   const opts = [{ value: "", label: "(inherit)" }];
   for (const m of state.models.checkpoints) opts.push({ value: m.name, label: m.name });
   return { opts, selected: selected || "" };
 }
 
-function loraOptions(selected) {
-  const opts = [{ value: "", label: "(select LoRA)" }];
-  for (const m of state.models.loras) opts.push({ value: m.name, label: m.name });
-  return { opts, selected: selected || "" };
+// Locate a LoRA model record by its stored file value (with a basename
+// fallback so legacy pipelines that saved just the filename still resolve).
+function loraByFile(file) {
+  if (!file) return null;
+  const loras = state.models.loras;
+  return loras.find((m) => m.file === file) || loras.find((m) => m.name === file) || null;
 }
 
 function loraTriggersFor(file) {
-  const m = state.models.loras.find((x) => x.name === file);
+  const m = loraByFile(file);
   return m ? m.triggers || "" : "";
+}
+
+// Substring filter over filename, model name, tags and subfolder. Capped so a
+// few-thousand-LoRA library never renders a giant dropdown at once.
+const LORA_RESULT_CAP = 50;
+function filterLoras(query) {
+  const q = (query || "").trim().toLowerCase();
+  const loras = state.models.loras;
+  if (!q) return loras.slice(0, LORA_RESULT_CAP);
+  const out = [];
+  for (const m of loras) {
+    const hay = [m.name, m.model_name, m.subfolder, (m.tags || []).join(" ")]
+      .join(" ")
+      .toLowerCase();
+    if (hay.includes(q)) {
+      out.push(m);
+      if (out.length >= LORA_RESULT_CAP) break;
+    }
+  }
+  return out;
+}
+
+function previewUrl(file) {
+  return `/api/brp/preview?kind=loras&file=${encodeURIComponent(file)}`;
 }
 
 // --------------------------------------------------------------------------- //
@@ -234,10 +261,6 @@ function renderLoras(box, layer) {
     return;
   }
   layer.loras.forEach((lora, i) => {
-    const sel = el("select", { class: "lora-select" });
-    const lo = loraOptions(lora.file);
-    fillSelect(sel, lo.opts, lo.selected);
-
     const triggers = el("input", {
       type: "text",
       class: "lora-triggers",
@@ -246,10 +269,10 @@ function renderLoras(box, layer) {
       on: { input: () => (lora.triggers = triggers.value) },
     });
 
-    sel.addEventListener("change", () => {
-      lora.file = sel.value;
+    const picker = createLoraPicker(lora.file, (file) => {
+      lora.file = file;
       // Auto-fill triggers from the chosen model (editable afterwards).
-      const t = loraTriggersFor(sel.value);
+      const t = loraTriggersFor(file);
       lora.triggers = t;
       triggers.value = t;
     });
@@ -269,7 +292,7 @@ function renderLoras(box, layer) {
 
     box.appendChild(
       el("div", { class: "lora-row" }, [
-        sel,
+        picker,
         weight,
         triggers,
         el("button", {
@@ -287,6 +310,140 @@ function renderLoras(box, layer) {
       ])
     );
   });
+}
+
+function loraDisplayName(file) {
+  const m = loraByFile(file);
+  return m ? m.name : file || "";
+}
+
+// An autocomplete LoRA picker: a search input backed by a dropdown of filtered
+// models, each with a lazy preview thumbnail and a base-model badge. Calls
+// onPick(file) when a model is chosen. Replaces the old flat <select>, which
+// was unusable across hundreds of files and also dropped the subfolder needed
+// to actually load the LoRA.
+function createLoraPicker(initialFile, onPick) {
+  let currentFile = initialFile || "";
+  let results = [];
+  let active = -1;
+  let open = false;
+
+  const wrap = el("div", { class: "lora-picker" });
+  const input = el("input", {
+    type: "text",
+    class: "lora-search",
+    placeholder: "search LoRA…",
+    value: loraDisplayName(currentFile),
+    title: currentFile,
+  });
+  const panel = el("div", { class: "lora-dropdown hidden" });
+  wrap.appendChild(input);
+  wrap.appendChild(panel);
+
+  function render() {
+    clear(panel);
+    if (results.length === 0) {
+      panel.appendChild(el("div", { class: "lora-empty", text: "no matches" }));
+      return;
+    }
+    results.forEach((m, idx) => {
+      const thumb = m.preview
+        ? el("img", {
+            class: "lora-thumb",
+            loading: "lazy",
+            src: previewUrl(m.file),
+            alt: "",
+          })
+        : el("div", { class: "lora-thumb lora-thumb-none" });
+      const meta = el("div", { class: "lora-meta" }, [
+        el("div", { class: "lora-name", text: m.name }),
+        el("div", { class: "lora-sub", text: m.subfolder || "" }),
+      ]);
+      const item = el(
+        "div",
+        {
+          class: "lora-item" + (idx === active ? " active" : ""),
+          // mousedown fires before the input's blur, so the pick wins the race.
+          on: {
+            mousedown: (ev) => {
+              ev.preventDefault();
+              choose(m);
+            },
+          },
+        },
+        [thumb, meta, m.base_model ? el("span", { class: "lora-badge", text: m.base_model }) : null]
+      );
+      panel.appendChild(item);
+    });
+  }
+
+  function show() {
+    open = true;
+    panel.classList.remove("hidden");
+  }
+  function hide() {
+    open = false;
+    active = -1;
+    panel.classList.add("hidden");
+  }
+  function refresh() {
+    results = filterLoras(input.value === loraDisplayName(currentFile) ? "" : input.value);
+    active = -1;
+    render();
+  }
+  function choose(m) {
+    currentFile = m.file;
+    onPick(m.file);
+    input.value = m.name;
+    input.title = m.file;
+    hide();
+  }
+  function scrollActive() {
+    const node = panel.children[active];
+    if (node && node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
+  }
+
+  input.addEventListener("focus", () => {
+    input.select();
+    refresh();
+    show();
+  });
+  input.addEventListener("input", () => {
+    refresh();
+    show();
+  });
+  input.addEventListener("blur", () => {
+    // Discard unconfirmed typing: restore the label of the current selection.
+    input.value = loraDisplayName(currentFile);
+    input.title = currentFile;
+    hide();
+  });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      if (!open) {
+        refresh();
+        show();
+      }
+      active = Math.min(active + 1, results.length - 1);
+      render();
+      scrollActive();
+    } else if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      active = Math.max(active - 1, 0);
+      render();
+      scrollActive();
+    } else if (ev.key === "Enter") {
+      if (open && active >= 0 && active < results.length) {
+        ev.preventDefault();
+        choose(results[active]);
+      }
+    } else if (ev.key === "Escape") {
+      input.blur();
+    }
+  });
+
+  return wrap;
 }
 
 function field(label, control) {

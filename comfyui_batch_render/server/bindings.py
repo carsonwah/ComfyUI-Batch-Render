@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,11 +27,36 @@ class ComfyDeps:
 
     def __init__(self, store: Store | None = None) -> None:
         self.store = store if store is not None else Store()
+        # Sidecar parse cache: ``sidecar path -> (mtime, slim metadata dict)``.
+        # Re-parse a ``.metadata.json`` only when its mtime changes, so listing
+        # hundreds of LoRAs stays cheap on repeat calls (mirrors LoRA Manager's
+        # mtime-keyed model cache, minus the SQLite persistence).
+        self._meta_cache: dict[str, tuple[float, dict]] = {}
+
+    # Sidecar preview extensions, in priority order. LoRA Manager writes a
+    # ``<base>.<ext>`` (and sometimes ``<base>.preview.<ext>``) next to the model.
+    _PREVIEW_EXTS = (
+        ".preview.png",
+        ".preview.jpeg",
+        ".preview.jpg",
+        ".preview.webp",
+        ".png",
+        ".jpeg",
+        ".jpg",
+        ".webp",
+        ".gif",
+    )
 
     # -- models ------------------------------------------------------------- #
 
     def list_models(self, kind: str) -> list[dict]:
-        """List loras/checkpoints from ``folder_paths``, enriched with triggers."""
+        """List loras/checkpoints from ``folder_paths``, enriched with metadata.
+
+        Each entry carries ``file`` (the full relative path ComfyUI's loaders
+        expect as ``lora_name``/``ckpt_name``), ``name``/``subfolder`` for
+        display, plus ``model_name``, ``base_model``, ``tags``, ``triggers``,
+        ``preview`` and ``nsfw_level`` read from the sidecar ``.metadata.json``.
+        """
         import folder_paths  # type: ignore  # ComfyUI runtime only
 
         if kind not in ("loras", "checkpoints"):
@@ -38,41 +64,111 @@ class ComfyDeps:
 
         out: list[dict] = []
         for rel in folder_paths.get_filename_list(kind):
-            rel_str = str(rel).replace("\\", "/")
-            subfolder, _, name = rel_str.rpartition("/")
-            triggers = self._read_triggers(kind, rel)
+            rel_native = str(rel)
+            rel_fwd = rel_native.replace("\\", "/")
+            subfolder, _, name = rel_fwd.rpartition("/")
+            full = folder_paths.get_full_path(kind, rel)
+            meta = self._read_meta(full)
             out.append(
-                {"name": name, "subfolder": subfolder, "triggers": triggers}
+                {
+                    # ``file`` is what LoraLoader/CheckpointLoader expect: the
+                    # path relative to the models dir, native separators intact
+                    # so it matches the /object_info combo exactly.
+                    "file": rel_native,
+                    "name": name,
+                    "subfolder": subfolder,
+                    "model_name": meta.get("model_name", ""),
+                    "base_model": meta.get("base_model", ""),
+                    "tags": meta.get("tags", []),
+                    "triggers": meta.get("triggers", ""),
+                    "preview": bool(full and self._find_preview(str(full))),
+                    "nsfw_level": meta.get("nsfw_level", 0),
+                }
             )
         return out
 
+    def preview_path(self, kind: str, file: str) -> str | None:
+        """Resolve the on-disk preview image for a model, or ``None``.
+
+        ``file`` is the relative path from :meth:`list_models`. Resolution goes
+        through ``folder_paths.get_full_path`` (which only returns paths for
+        known model files), so it can't be steered outside the model roots.
+        """
+        import folder_paths  # type: ignore
+
+        if kind not in ("loras", "checkpoints"):
+            raise ValueError(f"unknown kind: {kind}")
+        full = folder_paths.get_full_path(kind, file)
+        if not full:
+            return None
+        return self._find_preview(str(full))
+
+    @classmethod
+    def _find_preview(cls, model_full: str) -> str | None:
+        """Find a sidecar preview image next to ``model_full`` (``...x.safetensors``)."""
+        base, _ext = os.path.splitext(model_full)
+        for suffix in cls._PREVIEW_EXTS:
+            cand = base + suffix
+            if os.path.isfile(cand):
+                return cand
+        return None
+
+    def _read_meta(self, full: str | None) -> dict:
+        """Return slim sidecar metadata for a model, cached by sidecar mtime."""
+        if not full:
+            return {}
+        # LoRA Manager writes ``<base>.metadata.json`` *beside* the model, i.e.
+        # the model extension is replaced, not appended.
+        sidecar = os.path.splitext(str(full))[0] + ".metadata.json"
+        try:
+            mtime = os.path.getmtime(sidecar)
+        except OSError:
+            return {}
+        cached = self._meta_cache.get(sidecar)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        slim = self._parse_meta(sidecar)
+        self._meta_cache[sidecar] = (mtime, slim)
+        return slim
+
+    @classmethod
+    def _parse_meta(cls, sidecar: str) -> dict:
+        """Project a ``.metadata.json`` into the fields the picker needs."""
+        try:
+            data = json.loads(Path(sidecar).read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        civitai = data.get("civitai")
+        civitai = civitai if isinstance(civitai, dict) else {}
+        tags = data.get("tags")
+        tags = [str(t) for t in tags if t] if isinstance(tags, list) else []
+        return {
+            "model_name": str(data.get("model_name") or ""),
+            "base_model": str(data.get("base_model") or ""),
+            "tags": tags,
+            "triggers": cls._extract_triggers(data, civitai),
+            "nsfw_level": int(data.get("preview_nsfw_level") or 0),
+        }
+
     @staticmethod
-    def _read_triggers(kind: str, rel: str) -> str:
-        """Best-effort read of a sidecar ``<file>.metadata.json`` for triggers."""
-        try:
-            import folder_paths  # type: ignore
-
-            full = folder_paths.get_full_path(kind, rel)
-            if not full:
-                return ""
-            sidecar = Path(str(full) + ".metadata.json")
-            if not sidecar.exists():
-                return ""
-            data = json.loads(sidecar.read_text(encoding="utf-8"))
-        except Exception:
-            return ""
-
-        # Be defensive about schema variations across metadata tools.
-        try:
-            if isinstance(data, dict):
-                for key in ("trigger_words", "triggerWords", "triggers", "activation_text"):
-                    val = data.get(key)
-                    if isinstance(val, list):
-                        return ", ".join(str(v) for v in val if v)
-                    if isinstance(val, str) and val.strip():
-                        return val.strip()
-        except Exception:
-            return ""
+    def _extract_triggers(data: dict, civitai: dict) -> str:
+        """Pull trigger words, preferring LoRA Manager's ``civitai.trainedWords``."""
+        words = civitai.get("trainedWords")
+        if isinstance(words, list) and words:
+            joined = ", ".join(str(w).strip() for w in words if str(w).strip())
+            if joined:
+                return joined
+        # Fall back to flat schemas other metadata tools use.
+        for key in ("trigger_words", "triggerWords", "triggers", "activation_text"):
+            val = data.get(key)
+            if isinstance(val, list):
+                joined = ", ".join(str(v) for v in val if v)
+                if joined:
+                    return joined
+            if isinstance(val, str) and val.strip():
+                return val.strip()
         return ""
 
     # -- target ------------------------------------------------------------- #

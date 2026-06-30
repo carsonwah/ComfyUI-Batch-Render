@@ -47,7 +47,11 @@ class Deps(Protocol):
     store: Store
 
     def list_models(self, kind: str) -> list[dict]:
-        """Return ``[{"name","subfolder","triggers"}, ...]`` for a model kind."""
+        """Return ``[{"file","name","subfolder","triggers", ...}, ...]`` for a kind."""
+        ...
+
+    def preview_path(self, kind: str, file: str) -> str | None:
+        """Return the on-disk preview image path for a model, or None."""
         ...
 
     async def start_run(
@@ -189,6 +193,22 @@ async def _models(request: web.Request) -> web.Response:
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
     return web.json_response({"models": models})
+
+
+async def _preview(request: web.Request) -> web.StreamResponse:
+    kind = request.query.get("kind", "loras")
+    if kind not in ("loras", "checkpoints"):
+        return web.json_response({"error": f"unknown kind: {kind}"}, status=400)
+    file = request.query.get("file", "")
+    if not file:
+        return web.json_response({"error": "missing file"}, status=400)
+    try:
+        path = _deps(request).preview_path(kind, file)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+    if not path or not Path(path).is_file():
+        return web.json_response({"error": "no preview"}, status=404)
+    return web.FileResponse(path)
 
 
 async def _get_settings(request: web.Request) -> web.Response:
@@ -414,6 +434,7 @@ def register_routes(
     app.router.add_get("/batch-render", _index)
     app.router.add_get("/api/brp/health", _health)
     app.router.add_get("/api/brp/models", _models)
+    app.router.add_get("/api/brp/preview", _preview)
     app.router.add_get("/api/brp/settings", _get_settings)
     app.router.add_post("/api/brp/settings", _post_settings)
     app.router.add_get("/api/brp/pipelines", _list_pipelines)
