@@ -19,6 +19,7 @@ MOCK_IMAGE = {"filename": "out_0001.png", "subfolder": "sub", "type": "output"}
 
 PENDING: web.AppKey = web.AppKey("pending", asyncio.Queue)
 MODE: web.AppKey = web.AppKey("mode", str)
+LAST_BODY: web.AppKey = web.AppKey("last_body", dict)
 
 
 def _make_app(mode: str = "ok") -> web.Application:
@@ -26,9 +27,12 @@ def _make_app(mode: str = "ok") -> web.Application:
     app = web.Application()
     app[PENDING] = asyncio.Queue()
     app[MODE] = mode
+    app[LAST_BODY] = {}
 
     async def prompt(request: web.Request) -> web.Response:
         body = await request.json()
+        request.app[LAST_BODY].clear()
+        request.app[LAST_BODY].update(body)
         graph = body.get("prompt")
         if "prompt" not in body or graph == "BAD":
             return web.json_response(
@@ -105,9 +109,11 @@ class _MockServer:
         self.mode = mode
         self.runner: web.AppRunner | None = None
         self.port: int | None = None
+        self.app: web.Application | None = None
 
     async def __aenter__(self) -> "_MockServer":
-        self.runner = web.AppRunner(_make_app(self.mode))
+        self.app = _make_app(self.mode)
+        self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         site = web.TCPSite(self.runner, "127.0.0.1", 0)
         await site.start()
@@ -154,6 +160,31 @@ def test_queue_prompt_returns_id():
             async with ComfyClient("127.0.0.1", server.port) as client:
                 prompt_id = await client.queue_prompt({"any": "graph"})
                 assert isinstance(prompt_id, str) and prompt_id
+
+    asyncio.run(go())
+
+
+def test_queue_prompt_attaches_workflow_metadata():
+    """The submit payload includes extra_data.extra_pnginfo.workflow so that
+    UI-oriented nodes (e.g. WidgetToString) can locate nodes under the API."""
+    async def go():
+        graph = {
+            "30": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": "model.safetensors"},
+                "_meta": {"title": "Load Checkpoint"},
+            },
+            "49": {
+                "class_type": "WidgetToString",
+                "inputs": {"id": 30, "widget_name": "ckpt_name"},
+            },
+        }
+        async with _MockServer() as server:
+            async with ComfyClient("127.0.0.1", server.port) as client:
+                await client.queue_prompt(graph)
+            wf = server.app[LAST_BODY]["extra_data"]["extra_pnginfo"]["workflow"]
+            ids = {n["id"] for n in wf["nodes"]}
+            assert 30 in ids and 49 in ids
 
     asyncio.run(go())
 

@@ -14,6 +14,8 @@ from typing import Any
 
 import aiohttp
 
+from .patcher import build_workflow_metadata
+
 
 class ComfyClientError(Exception):
     """Raised when the ComfyUI server reports an error or is unreachable."""
@@ -63,8 +65,20 @@ class ComfyClient:
     # -- HTTP endpoints ----------------------------------------------------- #
 
     async def queue_prompt(self, graph: dict) -> str:
-        """POST a graph to ``/prompt`` and return the assigned ``prompt_id``."""
+        """POST a graph to ``/prompt`` and return the assigned ``prompt_id``.
+
+        A best-effort ``extra_data.extra_pnginfo.workflow`` is attached so that
+        UI-oriented community nodes (e.g. KJNodes ``WidgetToString``) that read
+        the litegraph workflow keep working under API submission. Reconstruction
+        is defensive and never blocks the queue.
+        """
         payload = {"prompt": graph, "client_id": self.client_id}
+        try:
+            payload["extra_data"] = {
+                "extra_pnginfo": {"workflow": build_workflow_metadata(graph)}
+            }
+        except Exception:  # pragma: no cover - never let metadata block a submit
+            pass
         async with self.session.post(
             f"{self.base_url}/prompt", json=payload
         ) as resp:

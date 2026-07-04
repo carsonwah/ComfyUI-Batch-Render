@@ -172,3 +172,114 @@ def build_render_graph(
     )
 
     return graph
+
+
+def _is_link(value: object) -> bool:
+    """Heuristic: an input value shaped like a ``[node_id, output_index]`` link.
+
+    API-format connections are ``[str, int]``. Everything else (scalars, dicts,
+    single-element or longer lists) is treated as a widget value.
+    """
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int)
+        and not isinstance(value[1], bool)
+    )
+
+
+def _litegraph_id(key: str):
+    """litegraph node ids are ints; keep non-numeric keys (e.g. spliced loras)."""
+    return int(key) if isinstance(key, str) and key.lstrip("-").isdigit() else key
+
+
+def build_workflow_metadata(graph: dict) -> dict:
+    """Reconstruct a litegraph-style ``workflow`` dict from an API-format prompt.
+
+    ComfyUI's web UI submits this alongside the prompt as
+    ``extra_data.extra_pnginfo.workflow``. Some community nodes read it to locate
+    nodes and trace links (e.g. KJNodes ``WidgetToString``); without it they crash
+    on API submission with ``'NoneType' object is not subscriptable``. Supplying a
+    best-effort reconstruction lets those UI-oriented nodes keep working.
+
+    Reconstructed:
+      * ``nodes`` with ``id`` / ``type`` / ``title`` / ``inputs`` / ``outputs`` /
+        ``widgets_values``
+      * a top-level ``links`` table with synthetic link ids, cross-referenced from
+        each node's ``inputs[].link`` and ``outputs[].links``
+
+    Not recoverable from the API format (and thus omitted): true widget order for
+    some nodes, reroute/group/note nodes, and litegraph slot types. Nodes that
+    depend on those specifics may still misbehave. ``graph`` is never mutated.
+    """
+    if not isinstance(graph, dict):
+        return {"version": 0.4, "nodes": [], "links": []}
+
+    links: list = []
+    inputs_by_node: dict[str, list] = {}
+    outputs_by_node: dict[str, dict[int, list]] = {}
+    link_seq = 0
+
+    # First pass: turn every connection into a synthetic link and record wiring.
+    for key, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        node_inputs = node.get("inputs")
+        if not isinstance(node_inputs, dict):
+            continue
+        slot_index = 0
+        for name, value in node_inputs.items():
+            if not _is_link(value):
+                continue
+            link_seq += 1
+            src_key, src_slot = value[0], value[1]
+            links.append(
+                [
+                    link_seq,
+                    _litegraph_id(src_key),
+                    src_slot,
+                    _litegraph_id(key),
+                    slot_index,
+                    "*",
+                ]
+            )
+            inputs_by_node.setdefault(key, []).append(
+                {"name": name, "type": "*", "link": link_seq}
+            )
+            outputs_by_node.setdefault(src_key, {}).setdefault(
+                src_slot, []
+            ).append(link_seq)
+            slot_index += 1
+
+    # Second pass: assemble node entries.
+    nodes: list = []
+    for key, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        node_inputs = node.get("inputs")
+        widgets_values = [
+            v
+            for v in (node_inputs.values() if isinstance(node_inputs, dict) else [])
+            if not _is_link(v)
+        ]
+
+        out_map = outputs_by_node.get(key, {})
+        outputs = [
+            {"links": out_map.get(slot, [])} for slot in range(max(out_map) + 1)
+        ] if out_map else []
+
+        entry = {
+            "id": _litegraph_id(key),
+            "type": node.get("class_type", ""),
+            "inputs": inputs_by_node.get(key, []),
+            "outputs": outputs,
+            "widgets_values": widgets_values,
+        }
+        meta = node.get("_meta")
+        title = meta.get("title") if isinstance(meta, dict) else None
+        if title:
+            entry["title"] = title
+        nodes.append(entry)
+
+    return {"version": 0.4, "nodes": nodes, "links": links}

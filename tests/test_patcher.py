@@ -11,6 +11,7 @@ from comfyui_batch_render.patcher import (
     _join_nonempty,
     _set_field,
     build_render_graph,
+    build_workflow_metadata,
     combine_layers,
     splice_lora_chain,
 )
@@ -364,3 +365,79 @@ def test_from_dict_accepts_instances_and_dicts():
     )
     assert nm.prompt == "6" and nm.negative is None
     assert NodeMap.from_dict(nm) is nm
+
+
+# --------------------------------------------------------------------------- #
+# build_workflow_metadata
+# --------------------------------------------------------------------------- #
+
+
+def test_build_workflow_metadata_locates_node_and_widget():
+    """The reconstructed workflow lets a WidgetToString-style lookup succeed:
+    node id present in ``nodes`` and its widget value readable from the prompt."""
+    graph = {
+        "30": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "model.safetensors"},
+            "_meta": {"title": "Load Checkpoint"},
+        },
+        "49": {
+            "class_type": "WidgetToString",
+            "inputs": {"id": 30, "widget_name": "ckpt_name"},
+        },
+    }
+    wf = build_workflow_metadata(graph)
+    by_id = {n["id"]: n for n in wf["nodes"]}
+
+    # ints for numeric keys; title carried from _meta; widget values preserved.
+    assert 30 in by_id and 49 in by_id
+    assert by_id[30]["title"] == "Load Checkpoint"
+    assert by_id[30]["type"] == "CheckpointLoaderSimple"
+    assert "model.safetensors" in by_id[30]["widgets_values"]
+    # scalar widget inputs (id=30) are not mistaken for links
+    assert by_id[49]["inputs"] == []
+
+
+def test_build_workflow_metadata_reconstructs_links():
+    """Connections become a consistent synthetic link table cross-referenced by
+    both the consumer's ``inputs[].link`` and the producer's ``outputs[].links``."""
+    graph = {
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": "hi", "clip": ["4", 1]},
+        },
+    }
+    wf = build_workflow_metadata(graph)
+    by_id = {n["id"]: n for n in wf["nodes"]}
+
+    assert len(wf["links"]) == 1
+    link_id, origin, origin_slot, target, target_slot, _type = wf["links"][0]
+    assert origin == 4 and origin_slot == 1 and target == 6
+
+    # consumer input references the link; producer output slot 1 lists it.
+    consumer_in = by_id[6]["inputs"]
+    assert consumer_in == [{"name": "clip", "type": "*", "link": link_id}]
+    assert by_id[4]["outputs"][1]["links"] == [link_id]
+    # "text" is a widget value, not a link
+    assert "hi" in by_id[6]["widgets_values"]
+
+
+def test_build_workflow_metadata_keeps_nonnumeric_ids():
+    """Spliced LoraLoader ids (e.g. 'brp_lora_0') stay as strings so the prompt
+    key still resolves for downstream lookups."""
+    graph = {
+        "brp_lora_0": {"class_type": "LoraLoader", "inputs": {"model": ["30", 0]}},
+        "30": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+    }
+    wf = build_workflow_metadata(graph)
+    ids = {n["id"] for n in wf["nodes"]}
+    assert "brp_lora_0" in ids and 30 in ids
+
+
+def test_build_workflow_metadata_tolerates_junk():
+    """Non-dict graphs and non-dict node bodies never raise."""
+    assert build_workflow_metadata("BAD") == {"version": 0.4, "nodes": [], "links": []}
+    wf = build_workflow_metadata({"prompt": "graph", "x": {"class_type": "Foo"}})
+    ids = {n["id"] for n in wf["nodes"]}
+    assert "x" in ids  # the str-bodied "prompt" entry is skipped
