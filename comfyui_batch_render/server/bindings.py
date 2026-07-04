@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,6 +21,17 @@ from ..store import Store
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8188
+
+# A1111/WebUI-style LoRA invocation, e.g. ``<lora:my-lora:0.8>``. Civitai
+# ``trainedWords`` sometimes embed these; they mean nothing to ComfyUI's CLIP
+# encoder (LoRAs load via spliced ``LoraLoader`` nodes) and would otherwise be
+# injected into the prompt as literal tokens, so we strip them on extraction.
+_LORA_TAG_RE = re.compile(r"<lora:[^>]*>", re.IGNORECASE)
+
+
+def _strip_lora_tags(text: str) -> str:
+    """Drop ``<lora:...>`` invocations and any comma/space they leave behind."""
+    return _LORA_TAG_RE.sub("", text).strip().strip(",").strip()
 
 
 class ComfyDeps:
@@ -161,7 +173,7 @@ class ComfyDeps:
             # the distinct trigger-word sets and delete the ones they don't
             # want. The ",\n" separator stays valid in the prompt (the newline
             # is just whitespace to CLIP) if they leave several in place.
-            parts = [str(w).strip().rstrip(",").strip() for w in words]
+            parts = [_strip_lora_tags(str(w)) for w in words]
             parts = [p for p in parts if p]
             if parts:
                 return ",\n".join(parts)
@@ -169,11 +181,13 @@ class ComfyDeps:
         for key in ("trigger_words", "triggerWords", "triggers", "activation_text"):
             val = data.get(key)
             if isinstance(val, list):
-                joined = ", ".join(str(v) for v in val if v)
+                joined = ", ".join(p for p in (_strip_lora_tags(str(v)) for v in val) if p)
                 if joined:
                     return joined
-            if isinstance(val, str) and val.strip():
-                return val.strip()
+            if isinstance(val, str):
+                stripped = _strip_lora_tags(val)
+                if stripped:
+                    return stripped
         return ""
 
     # -- target ------------------------------------------------------------- #
