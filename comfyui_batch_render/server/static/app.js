@@ -1044,9 +1044,9 @@ async function detectSlots() {
 
     const notes = (res.notes || []).join(" ");
     document.getElementById("detect-notes").textContent = notes || "Detected all slots.";
-    // Open advanced section so the user can review.
-    const adv = document.getElementById("advanced");
-    if (adv) adv.open = true;
+    // Leave "Advanced / slot mapping" collapsed -- detection fills it in for the
+    // rare case the user wants to review, but it shouldn't clutter the UI by
+    // default.
     setEditorStatus("slots detected", "ok");
     persistRuntime(); // remember the detected slots across reloads
   } catch (err) {
