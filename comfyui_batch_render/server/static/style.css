@@ -277,6 +277,14 @@ button.small.caret {
 .card-head:last-child {
   margin-bottom: 0;
 }
+/* Scenario "Override checkpoint / prompts" disclosure toggle + its fields. */
+.override-toggle {
+  color: var(--muted);
+}
+.overrides-box[hidden] {
+  display: none;
+}
+
 .loras-section {
   margin-top: 0.5rem;
   border-top: 1px dashed var(--border);

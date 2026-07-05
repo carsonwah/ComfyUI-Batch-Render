@@ -173,27 +173,62 @@ function layerCard(kind, layer, index) {
   const lorasBox = el("div", { class: "loras-box" });
   renderLoras(lorasBox, layer);
 
-  const body = el("div", { class: "card-body" }, [
+  const overrideFields = [
     field("Checkpoint", ckSel),
     field("Positive", posInput),
     field("Negative", negInput),
-    el("div", { class: "loras-section" }, [
-      el("div", { class: "row-between" }, [
-        el("span", { class: "sub-label", text: "LoRAs" }),
-        el("button", {
-          class: "small",
-          text: "+ LoRA",
-          on: {
-            click: () => {
-              layer.loras.push({ file: "", weight: 1.0, triggers: "" });
-              renderLoras(lorasBox, layer);
-            },
+  ];
+
+  const lorasSection = el("div", { class: "loras-section" }, [
+    el("div", { class: "row-between" }, [
+      el("span", { class: "sub-label", text: "LoRAs" }),
+      el("button", {
+        class: "small",
+        text: "+ LoRA",
+        on: {
+          click: () => {
+            layer.loras.push({ file: "", weight: 1.0, triggers: "" });
+            renderLoras(lorasBox, layer);
           },
-        }),
-      ]),
-      lorasBox,
+        },
+      }),
     ]),
+    lorasBox,
   ]);
+
+  let body;
+  if (kind === "bases") {
+    // The base carries the main prompt/checkpoint, so show those fields directly.
+    body = el("div", { class: "card-body" }, [...overrideFields, lorasSection]);
+  } else {
+    // Scenarios usually only add LoRAs. Tuck the checkpoint/prompt overrides
+    // behind a toggle so the common case stays uncluttered -- but reveal them
+    // by default when a loaded scenario actually sets one.
+    const hasOverrides = !!(
+      layer.checkpoint ||
+      (layer.prompt || "").trim() ||
+      (layer.negative || "").trim()
+    );
+    const overridesBox = el(
+      "div",
+      { class: "overrides-box", hidden: !hasOverrides },
+      overrideFields
+    );
+    const labelText = () =>
+      (overridesBox.hidden ? "▸ " : "▾ ") + "Override checkpoint / prompts";
+    const toggle = el("button", {
+      class: "small override-toggle",
+      text: labelText(),
+      title: "Set a checkpoint or positive/negative prompt just for this scenario",
+      on: {
+        click: () => {
+          overridesBox.hidden = !overridesBox.hidden;
+          toggle.textContent = labelText();
+        },
+      },
+    });
+    body = el("div", { class: "card-body" }, [toggle, overridesBox, lorasSection]);
+  }
 
   const head = [];
   // Scenarios can be collapsed to keep a long list scrollable. The base is a
