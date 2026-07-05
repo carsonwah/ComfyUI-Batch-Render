@@ -318,9 +318,9 @@ async def _get_capture(request: web.Request) -> web.Response:
 async def _post_capture(request: web.Request) -> web.Response:
     """Store a workflow captured from the ComfyUI canvas for the UI to pick up.
 
-    The ComfyUI frontend extension POSTs ``{template, source?, ts?}`` here right
-    before opening the Batch Render UI. We keep only the latest capture (single
-    user per server), replacing any previous one.
+    The ComfyUI frontend extension POSTs ``{template, name?, source?, ts?}`` here
+    right before opening the Batch Render UI. We keep only the latest capture
+    (single user per server), replacing any previous one.
     """
     try:
         body = await request.json()
@@ -335,8 +335,10 @@ async def _post_capture(request: web.Request) -> web.Response:
             {"error": "'template' must be a non-empty object"}, status=400
         )
 
+    name = body.get("name")
     request.app[CAPTURE_KEY]["current"] = {
         "template": template,
+        "name": name if isinstance(name, str) and name.strip() else None,
         "source": body.get("source") or "comfyui-canvas",
         "ts": body.get("ts"),
     }

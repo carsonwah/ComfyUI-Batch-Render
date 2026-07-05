@@ -82,6 +82,28 @@ async function snapshotApiGraph() {
   return apiGraph;
 }
 
+// Best-effort name of the workflow currently open in ComfyUI, so the Batch
+// Render UI can show "Using <name>" instead of just a node count. The field
+// lives in different places across frontend versions, so probe a few and fall
+// back to null (the UI copes fine without it). Returns a clean display name
+// (no directory, no .json extension).
+function currentWorkflowName() {
+  try {
+    const wm = app && app.workflowManager;
+    const ext = app && app.extensionManager && app.extensionManager.workflow;
+    const active =
+      (wm && wm.activeWorkflow) || (ext && ext.activeWorkflow) || null;
+    const raw =
+      (active && (active.filename || active.name || active.path || active.key)) ||
+      null;
+    if (!raw) return null;
+    const base = String(raw).split(/[\\/]/).pop();
+    return base.replace(/\.json$/i, "").trim() || null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 // Push a captured graph to the server slot. This is the cross-process channel:
 // the Batch Render UI (possibly in a different browser) reads it back. Returns
 // true on a 2xx response.
@@ -92,6 +114,7 @@ async function pushCaptureToServer(apiGraph) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         template: apiGraph,
+        name: currentWorkflowName(),
         source: "comfyui-canvas",
         ts: Date.now(),
       }),
@@ -120,7 +143,12 @@ async function captureCurrentWorkflow() {
     try {
       window.localStorage.setItem(
         CAPTURE_KEY,
-        JSON.stringify({ template: apiGraph, source: "comfyui-canvas", ts: Date.now() })
+        JSON.stringify({
+          template: apiGraph,
+          name: currentWorkflowName(),
+          source: "comfyui-canvas",
+          ts: Date.now(),
+        })
       );
     } catch (_e) {}
     return true;

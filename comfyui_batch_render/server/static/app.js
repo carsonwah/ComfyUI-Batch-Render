@@ -928,7 +928,12 @@ function setCaptureUI() {
   if (!banner) return;
   if (state.captured) {
     const n = Object.keys(state.captured.template || {}).length;
-    if (text) text.textContent = `✓ Using the workflow open in ComfyUI (${n} nodes).`;
+    const name = state.captured.name;
+    if (text) {
+      text.textContent = name
+        ? `✓ Using "${name}" from ComfyUI (${n} nodes).`
+        : `✓ Using the workflow open in ComfyUI (${n} nodes).`;
+    }
     banner.hidden = false;
     if (input) {
       input.disabled = true;
@@ -943,8 +948,8 @@ function setCaptureUI() {
   }
 }
 
-function applyCapture(template) {
-  state.captured = { template };
+function applyCapture(template, name) {
+  state.captured = { template, name: name || null };
   // A captured workflow has no on-disk path; clear the stale field value.
   state.runtime.workflow_template = "";
   setVal("pl-template", "");
@@ -974,13 +979,14 @@ async function consumeCapture() {
   // Primary: server relay.
   try {
     const res = await api.getCapture();
-    const template = res && res.captured && res.captured.template;
+    const cap = (res && res.captured) || null;
+    const template = cap && cap.template;
     if (template && typeof template === "object" && Object.keys(template).length) {
       // Drain the stale same-origin copy so the channels can't disagree later.
       try {
         window.localStorage.removeItem(CAPTURE_KEY);
       } catch (_e) {}
-      applyCapture(template);
+      applyCapture(template, cap.name);
       return true;
     }
   } catch (_e) {
@@ -999,7 +1005,7 @@ async function consumeCapture() {
     const data = JSON.parse(raw);
     const template = data && data.template;
     if (template && typeof template === "object" && Object.keys(template).length) {
-      applyCapture(template);
+      applyCapture(template, data.name);
       return true;
     }
   } catch (_e) {
@@ -1014,9 +1020,10 @@ async function consumeCapture() {
 async function refreshFromServerCapture() {
   try {
     const res = await api.getCapture();
-    const template = res && res.captured && res.captured.template;
+    const cap = (res && res.captured) || null;
+    const template = cap && cap.template;
     if (template && typeof template === "object" && Object.keys(template).length) {
-      applyCapture(template);
+      applyCapture(template, cap.name);
       setEditorStatus("re-synced the workflow from ComfyUI", "ok");
       await detectSlots();
       return true;
