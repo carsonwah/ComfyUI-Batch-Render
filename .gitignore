@@ -1,6 +1,7 @@
 # --- Project planning / local docs (not for the public repo) ---
 init.md
 SOLUTION.md
+temp.md
 
 # --- Local-specific configuration & secrets (never commit) ---
 # Real config lives here; only the *.example.* templates are committed.
