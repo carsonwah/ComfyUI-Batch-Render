@@ -20,7 +20,7 @@ const state = {
   // Workflow captured from the ComfyUI canvas (API-format dict) for this
   // session, or null when using the manual template-path field instead.
   captured: null,
-  run: { active: false, ws: null },
+  run: { active: false, id: null, ws: null },
 };
 
 // localStorage key the ComfyUI top-menu extension writes the current graph to.
@@ -1108,8 +1108,15 @@ function wsUrl() {
 
 function setRunActive(active) {
   state.run.active = active;
+  if (!active) state.run.id = null;
   const btn = document.getElementById("run-btn");
   if (btn) btn.disabled = active;
+  updateStopButton();
+}
+
+function updateStopButton() {
+  const btn = document.getElementById("stop-btn");
+  if (btn) btn.disabled = !state.run.active || !state.run.id;
 }
 
 function logLine(text, level) {
@@ -1155,7 +1162,12 @@ function handleProgress(msg) {
   if (msg.type === "capture") {
     // The server got a fresh canvas snapshot; pull it in.
     refreshFromServerCapture();
-  } else if (msg.type === "progress") {
+    return;
+  }
+  // This socket receives events for every browser tab. Only the run started by
+  // this tab should alter its progress controls.
+  if (msg.run_id !== state.run.id) return;
+  if (msg.type === "progress") {
     if (msg.total != null) setProgress(msg.done || 0, msg.total);
     const job = msg.job || {};
     const where =
@@ -1171,6 +1183,9 @@ function handleProgress(msg) {
   } else if (msg.type === "error") {
     logLine(`error: ${msg.error}`, "err");
     setRunActive(false);
+  } else if (msg.type === "cancelled") {
+    logLine("batch stopped", "ok");
+    setRunActive(false);
   }
 }
 
@@ -1185,10 +1200,36 @@ async function runPipeline() {
   logLine(`starting run for "${runPayload.pipeline.name}"...`);
   try {
     const res = await api.run(runPayload);
+    state.run.id = res.run_id;
+    updateStopButton();
     logLine(`run id: ${res.run_id}`);
+    // The run can finish before the browser processes its WebSocket event.
+    // Reconcile once after receiving its id so controls cannot get stuck.
+    const status = await api.getRun(res.run_id);
+    if (status.status === "done") {
+      handleProgress({ type: "done", run_id: res.run_id, manifest: status.manifest });
+    } else if (status.status === "error") {
+      handleProgress({ type: "error", run_id: res.run_id, error: status.error });
+    } else if (status.status === "cancelled") {
+      handleProgress({ type: "cancelled", run_id: res.run_id });
+    }
   } catch (err) {
     logLine(`run failed to start: ${err.message}`, "err");
     setRunActive(false);
+  }
+}
+
+async function stopRun() {
+  const runId = state.run.id;
+  if (!state.run.active || !runId) return;
+  const btn = document.getElementById("stop-btn");
+  if (btn) btn.disabled = true;
+  logLine("stopping batch...");
+  try {
+    await api.cancelRun(runId);
+  } catch (err) {
+    logLine(`could not stop batch: ${err.message}`, "err");
+    updateStopButton();
   }
 }
 
@@ -1332,6 +1373,7 @@ function wireEvents() {
   document.getElementById("capture-clear")?.addEventListener("click", clearCapture);
   document.getElementById("capture-resync").addEventListener("click", requestRecapture);
   document.getElementById("run-btn").addEventListener("click", runPipeline);
+  document.getElementById("stop-btn").addEventListener("click", stopRun);
   document
     .getElementById("add-scenario")
     .addEventListener("click", () => {

@@ -20,6 +20,7 @@ MOCK_IMAGE = {"filename": "out_0001.png", "subfolder": "sub", "type": "output"}
 PENDING: web.AppKey = web.AppKey("pending", asyncio.Queue)
 MODE: web.AppKey = web.AppKey("mode", str)
 LAST_BODY: web.AppKey = web.AppKey("last_body", dict)
+INTERRUPTED: web.AppKey = web.AppKey("interrupted", dict)
 
 
 def _make_app(mode: str = "ok") -> web.Application:
@@ -28,6 +29,7 @@ def _make_app(mode: str = "ok") -> web.Application:
     app[PENDING] = asyncio.Queue()
     app[MODE] = mode
     app[LAST_BODY] = {}
+    app[INTERRUPTED] = {"value": False}
 
     async def prompt(request: web.Request) -> web.Response:
         body = await request.json()
@@ -94,11 +96,16 @@ def _make_app(mode: str = "ok") -> web.Application:
             {"system": {"comfyui_version": "mock"}, "devices": []}
         )
 
+    async def interrupt(request: web.Request) -> web.Response:
+        request.app[INTERRUPTED]["value"] = True
+        return web.Response()
+
     app.router.add_post("/prompt", prompt)
     app.router.add_get("/ws", ws)
     app.router.add_get("/history/{prompt_id}", history)
     app.router.add_get("/view", view)
     app.router.add_get("/system_stats", system_stats)
+    app.router.add_post("/interrupt", interrupt)
     return app
 
 
@@ -150,6 +157,16 @@ def test_check_connection():
             async with ComfyClient("127.0.0.1", server.port) as client:
                 stats = await client.check_connection()
                 assert stats["system"]["comfyui_version"] == "mock"
+
+    asyncio.run(go())
+
+
+def test_interrupt():
+    async def go():
+        async with _MockServer() as server:
+            async with ComfyClient("127.0.0.1", server.port) as client:
+                await client.interrupt()
+            assert server.app[INTERRUPTED]["value"] is True
 
     asyncio.run(go())
 

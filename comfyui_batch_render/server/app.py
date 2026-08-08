@@ -85,6 +85,7 @@ class RunManager:
 
     def __init__(self) -> None:
         self.runs: dict[str, dict] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
         self._ws: set[web.WebSocketResponse] = set()
 
     # -- websocket registry ------------------------------------------------- #
@@ -114,6 +115,15 @@ class RunManager:
     def snapshot(self) -> dict:
         return {"type": "snapshot", "runs": self.runs}
 
+    def cancel(self, run_id: str) -> bool:
+        """Request cancellation of an active run, returning whether it existed."""
+        task = self._tasks.get(run_id)
+        if task is None or task.done():
+            return False
+        self.runs[run_id]["status"] = "cancelling"
+        task.cancel()
+        return True
+
     async def start(
         self, deps: Deps, pipeline: dict, template: dict | None
     ) -> str:
@@ -126,7 +136,9 @@ class RunManager:
             "manifest": None,
             "error": None,
         }
-        asyncio.create_task(self._run(deps, run_id, pipeline, template))
+        self._tasks[run_id] = asyncio.create_task(
+            self._run(deps, run_id, pipeline, template)
+        )
         return run_id
 
     async def _run(
@@ -149,12 +161,17 @@ class RunManager:
             await self.broadcast(
                 {"type": "done", "run_id": run_id, "manifest": manifest}
             )
+        except asyncio.CancelledError:
+            record["status"] = "cancelled"
+            await self.broadcast({"type": "cancelled", "run_id": run_id})
         except Exception as exc:  # surface failures to subscribers
             record["status"] = "error"
             record["error"] = str(exc)
             await self.broadcast(
                 {"type": "error", "run_id": run_id, "error": str(exc)}
             )
+        finally:
+            self._tasks.pop(run_id, None)
 
 
 # --------------------------------------------------------------------------- #
@@ -397,6 +414,19 @@ async def _run_status(request: web.Request) -> web.Response:
     return web.json_response({"run_id": run_id, **record})
 
 
+async def _cancel_run(request: web.Request) -> web.Response:
+    run_id = request.match_info["run_id"]
+    runs = _runs(request)
+    record = runs.get(run_id)
+    if record is None:
+        return web.json_response({"error": f"unknown run: {run_id}"}, status=404)
+    if not runs.cancel(run_id):
+        return web.json_response(
+            {"error": f"run is not active: {run_id}"}, status=409
+        )
+    return web.json_response({"run_id": run_id, "status": "cancelling"}, status=202)
+
+
 async def _ws_progress(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -451,6 +481,7 @@ def register_routes(
     app.router.add_post("/api/brp/request-recapture", _request_recapture)
     app.router.add_post("/api/brp/run", _run)
     app.router.add_get("/api/brp/runs/{run_id}", _run_status)
+    app.router.add_post("/api/brp/runs/{run_id}/cancel", _cancel_run)
     app.router.add_get("/ws/brp-progress", _ws_progress)
 
     # Static assets last so explicit routes win.

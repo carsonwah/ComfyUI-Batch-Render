@@ -143,6 +143,20 @@ class ComfyClient:
                 f"could not reach ComfyUI at {self.base_url}: {exc}"
             ) from exc
 
+    async def interrupt(self) -> None:
+        """Ask ComfyUI to stop the graph it is currently executing."""
+        try:
+            async with self.session.post(f"{self.base_url}/interrupt") as resp:
+                if resp.status >= 400:
+                    text = await resp.text()
+                    raise ComfyClientError(
+                        f"interrupt failed (HTTP {resp.status}): {text}"
+                    )
+        except aiohttp.ClientError as exc:
+            raise ComfyClientError(
+                f"could not interrupt ComfyUI at {self.base_url}: {exc}"
+            ) from exc
+
     # -- completion waiting ------------------------------------------------- #
 
     async def wait_for_completion(

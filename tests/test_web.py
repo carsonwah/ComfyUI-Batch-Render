@@ -69,6 +69,21 @@ class FakeDeps:
         return _FAKE_MANIFEST
 
 
+class BlockingDeps(FakeDeps):
+    def __init__(self, store: Store) -> None:
+        super().__init__(store)
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def start_run(self, pipeline, template, on_progress):
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+
+
 class _Server:
     def __init__(self, app: web.Application) -> None:
         self.app = app
@@ -357,6 +372,39 @@ def test_run_and_websocket_progress(tmp_path):
                 assert status["manifest"] == _FAKE_MANIFEST
 
             async with sess.get(srv.url("/api/brp/runs/nope")) as r:
+                assert r.status == 404
+
+    asyncio.run(go())
+
+
+def test_cancel_run(tmp_path):
+    store = Store(tmp_path / "cfg")
+    deps = BlockingDeps(store)
+    app = create_app(deps)
+
+    async def go():
+        async with _Server(app) as srv, aiohttp.ClientSession() as sess:
+            async with sess.ws_connect(srv.url("/ws/brp-progress")) as ws:
+                assert (await ws.receive_json())["type"] == "snapshot"
+                async with sess.post(
+                    srv.url("/api/brp/run"), json={"pipeline": {"name": "p"}}
+                ) as r:
+                    run_id = (await r.json())["run_id"]
+                await asyncio.wait_for(deps.started.wait(), timeout=5)
+
+                async with sess.post(srv.url(f"/api/brp/runs/{run_id}/cancel")) as r:
+                    assert r.status == 202
+                    assert (await r.json())["status"] == "cancelling"
+
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=5)
+                assert msg == {"type": "cancelled", "run_id": run_id}
+                assert deps.cancelled.is_set()
+
+            async with sess.get(srv.url(f"/api/brp/runs/{run_id}")) as r:
+                assert (await r.json())["status"] == "cancelled"
+            async with sess.post(srv.url(f"/api/brp/runs/{run_id}/cancel")) as r:
+                assert r.status == 409
+            async with sess.post(srv.url("/api/brp/runs/nope/cancel")) as r:
                 assert r.status == 404
 
     asyncio.run(go())

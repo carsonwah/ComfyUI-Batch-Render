@@ -39,6 +39,8 @@ export const api = {
   clearCapture: () => request("DELETE", "/capture"),
   requestRecapture: () => request("POST", "/request-recapture"),
   run: (payload) => request("POST", "/run", payload),
+  getRun: (runId) => request("GET", `/runs/${encodeURIComponent(runId)}`),
+  cancelRun: (runId) => request("POST", `/runs/${encodeURIComponent(runId)}/cancel`),
   getSettings: () => request("GET", "/settings"),
   saveSettings: (patch) => request("POST", "/settings", patch),
 };

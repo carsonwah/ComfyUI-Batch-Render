@@ -285,6 +285,17 @@ class ComfyDeps:
             )
 
         async with ComfyClient(host, int(port)) as client:
-            return await run_pipeline(
-                pipe, tpl, client, output_dir, progress=_progress
-            )
+            try:
+                return await run_pipeline(
+                    pipe, tpl, client, output_dir, progress=_progress
+                )
+            except asyncio.CancelledError:
+                # A batch only queues one graph at a time. Interrupt the current
+                # graph before leaving so no further batch jobs are submitted.
+                try:
+                    await client.interrupt()
+                except Exception:
+                    # Cancellation must still complete if ComfyUI is shutting down
+                    # or does not accept the interrupt request.
+                    pass
+                raise
