@@ -407,7 +407,12 @@ function layerCard(kind, layer, index) {
             text: "+ Character",
             on: { click: () => {
               layer.loras.push(newLora("character"));
-              renderLayerList("scenarios");
+              // Keep this card (and the clicked button) mounted. Rebuilding the
+              // complete scenario list here makes browser scroll anchoring pick
+              // a different card when the focused button disappears.
+              renderLoras(castBox, layer, "character");
+              refreshScenarioCardStatus(layer);
+              updateReviewSummary();
             } },
           }),
         ]),
@@ -705,8 +710,8 @@ function renderLoras(box, layer, role = "scenario") {
         lora.reviewed = !lora.reviewed;
         reviewButton.textContent = lora.reviewed ? "Reviewed ✓" : "Mark reviewed";
         reviewButton.classList.toggle("reviewed", lora.reviewed);
-        if (role === "base") updateReviewSummary();
-        else renderLayerList("scenarios");
+        updateReviewSummary();
+        if (role !== "base") refreshScenarioCardStatus(layer);
       } },
     });
 
@@ -1404,12 +1409,40 @@ function newPipeline() {
   setEditorStatus("new pipeline", "ok");
 }
 
+const SAVE_FEEDBACK_MS = 1800;
+let saveFeedbackTimer = null;
+
+function setSaveFeedback(status = "idle") {
+  if (saveFeedbackTimer) {
+    clearTimeout(saveFeedbackTimer);
+    saveFeedbackTimer = null;
+  }
+  const labels = {
+    idle: "Save pipeline",
+    saving: "Saving\u2026",
+    saved: "Saved \u2713",
+    error: "Save failed",
+  };
+  document.querySelectorAll(".save-pipeline-btn").forEach((button) => {
+    button.disabled = status === "saving";
+    button.textContent = labels[status];
+    button.classList.toggle("is-saving", status === "saving");
+    button.classList.toggle("is-saved", status === "saved");
+    button.classList.toggle("is-error", status === "error");
+  });
+  if (status === "saved" || status === "error") {
+    saveFeedbackTimer = setTimeout(() => setSaveFeedback(), SAVE_FEEDBACK_MS);
+  }
+}
+
 async function savePipeline() {
   const body = assemblePipeline();
   if (!body.name) {
     setEditorStatus("name is required", "err");
+    setSaveFeedback("error");
     return;
   }
+  setSaveFeedback("saving");
   try {
     // Use PUT to upsert by the current name.
     await api.savePipeline(body.name, body);
@@ -1417,8 +1450,10 @@ async function savePipeline() {
     markEditorClean();
     await refreshPipelines();
     setEditorStatus(`saved "${body.name}"`, "ok");
+    setSaveFeedback("saved");
   } catch (err) {
     setEditorStatus(`save failed: ${err.message}`, "err");
+    setSaveFeedback("error");
   }
 }
 
@@ -1888,7 +1923,9 @@ function wireEvents() {
     state.editor.name = getVal("pl-name");
   });
   document.getElementById("new-btn").addEventListener("click", newPipeline);
-  document.getElementById("save-btn").addEventListener("click", savePipeline);
+  document.querySelectorAll(".save-pipeline-btn").forEach((button) =>
+    button.addEventListener("click", savePipeline)
+  );
   document.getElementById("detect-btn").addEventListener("click", detectSlots);
   document.getElementById("capture-clear")?.addEventListener("click", clearCapture);
   document.getElementById("capture-resync").addEventListener("click", requestRecapture);

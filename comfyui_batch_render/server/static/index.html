@@ -13,7 +13,12 @@
         <h1>Batch Render Studio</h1>
         <p class="header-kicker">Compose characters &times; scenarios with confidence</p>
       </div>
-      <p id="health" class="status header-status">checking server&hellip;</p>
+      <div class="header-actions">
+        <p id="health" class="status header-status">checking server&hellip;</p>
+        <button id="save-btn" class="primary header-save save-pipeline-btn" type="button">
+          Save pipeline
+        </button>
+      </div>
     </header>
 
     <div class="layout">
@@ -116,7 +121,7 @@
 
           <div class="row-between zone-actions">
             <span class="muted small">Save stores the base &amp; scenarios.</span>
-            <button id="save-btn">Save pipeline</button>
+            <button id="save-btn-bottom" class="save-pipeline-btn" type="button">Save pipeline</button>
           </div>
         </section>
 

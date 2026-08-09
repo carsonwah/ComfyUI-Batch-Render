@@ -62,7 +62,14 @@ h1 {
 }
 .brand-copy { line-height: 1.2; }
 .header-kicker { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.76rem; }
-.header-status { margin: 0 0 0 auto; }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-left: auto;
+}
+.header-status { margin: 0; }
+.header-save { min-width: 8.5rem; }
 h2 {
   margin: 0;
   font-size: 1rem;
@@ -258,6 +265,21 @@ button.btn-danger.armed {
 button.small {
   padding: 0.25rem 0.6rem;
   font-size: 0.8rem;
+}
+.save-pipeline-btn {
+  min-width: 8.5rem;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+.save-pipeline-btn.is-saving { cursor: progress; }
+.save-pipeline-btn.is-saved {
+  color: #092719;
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.save-pipeline-btn.is-error {
+  color: #fff;
+  background: #8b3434;
+  border-color: var(--danger);
 }
 
 /* Sidebar pipelines */
@@ -922,6 +944,9 @@ button.lora-folder.active {
   }
   .app-header { padding-inline: 1rem; }
   .header-kicker { display: none; }
+  .header-actions { gap: 0.45rem; }
+  .header-status { display: none; }
+  .header-save { min-width: auto; }
   .layout { padding-inline: 0.75rem; }
   .review-toolbar,
   .cast-heading { align-items: flex-start; flex-direction: column; }
