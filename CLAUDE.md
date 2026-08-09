@@ -2,6 +2,9 @@
 
 Operational notes for AI agents editing this repo. Read before changing code.
 
+## Completion
+After finishing and verifying a task, remember to create a git commit containing the completed changes.
+
 ## What this is
 ComfyUI plugin (+ CLI/library) that batch-renders `bases × scenarios × seeds`. A **base** and a **scenario** are the same shape — a **Layer** `{checkpoint?, prompt, negative?, loras[]}`. One render = one base + one scenario. LoRAs load by splicing stock `LoraLoader` nodes into the user's own API-format workflow (no required custom nodes). Users bring their own workflow; we only fill mapped slots.
 
