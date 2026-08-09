@@ -1002,6 +1002,13 @@ function toggleAllScenariosEnabled() {
   renderLayerList("scenarios");
 }
 
+function addScenario() {
+  state.editor.scenarios.push(
+    blankLayer(`scenario ${state.editor.scenarios.length + 1}`)
+  );
+  renderLayerList("scenarios");
+}
+
 // --------------------------------------------------------------------------- //
 // Editor <-> DOM binding for the top-level fields
 // --------------------------------------------------------------------------- //
@@ -1825,14 +1832,9 @@ function wireEvents() {
   document.getElementById("capture-resync").addEventListener("click", requestRecapture);
   document.getElementById("run-btn").addEventListener("click", runPipeline);
   document.getElementById("stop-btn").addEventListener("click", stopRun);
-  document
-    .getElementById("add-scenario")
-    .addEventListener("click", () => {
-      state.editor.scenarios.push(
-        blankLayer(`scenario ${state.editor.scenarios.length + 1}`)
-      );
-      renderLayerList("scenarios");
-    });
+  ["add-scenario", "add-scenario-bottom"].forEach((id) =>
+    document.getElementById(id).addEventListener("click", addScenario)
+  );
   document
     .getElementById("enable-all-scenarios")
     .addEventListener("click", toggleAllScenariosEnabled);

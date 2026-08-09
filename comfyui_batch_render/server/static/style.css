@@ -828,6 +828,11 @@ button.lora-folder.active {
 }
 .scenario-card .overrides-box .field { margin-bottom: 0; }
 .scenario-card .overrides-box .prompt-editor { min-height: 7rem; }
+.scenario-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.7rem;
+}
 .zone-intro {
   margin: 0;
 }
