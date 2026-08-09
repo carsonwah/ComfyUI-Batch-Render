@@ -270,13 +270,38 @@ button.small {
 .pl-row {
   display: flex;
   gap: 0.3rem;
+  padding: 0.22rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+.pl-row.selected {
+  border-color: rgba(232, 169, 91, 0.55);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.pl-row.selected .pl-open {
+  color: var(--accent);
+  background: var(--panel3);
 }
 .pl-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
   flex: 1 1 auto;
   text-align: left;
+  min-width: 0;
+}
+.pl-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pl-unsaved-dot {
+  flex: 0 0 auto;
+  color: var(--warning);
+  font-size: 1.25rem;
+  line-height: 0.75;
 }
 .settings {
   margin-top: 1rem;

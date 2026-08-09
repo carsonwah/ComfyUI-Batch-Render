@@ -17,6 +17,10 @@ const state = {
   // applied to whichever pipeline is open and persisted to settings (not files).
   runtime: blankRuntime(),
   loadedName: null, // server name of the pipeline currently loaded (for PUT)
+  // Snapshot of exactly what Save persists. Runtime settings are intentionally
+  // excluded so changing a workflow or seed does not dirty the pipeline.
+  savedEditorSnapshot: null,
+  editorDirty: false,
   // Workflow captured from the ComfyUI canvas (API-format dict) for this
   // session, or null when using the manual template-path field instead.
   captured: null,
@@ -1156,6 +1160,39 @@ function layerToDict(layer, defaultRole = "scenario") {
   };
 }
 
+// Compare the editor using the same normalized shape sent by Save. This also
+// means temporary empty LoRA rows (which Save omits) do not trigger a warning.
+function pipelineSnapshot() {
+  const e = state.editor;
+  return JSON.stringify({
+    name: String(e.name || "").trim() || "untitled",
+    bases: e.bases.map((layer) => layerToDict(layer, "base")),
+    scenarios: e.scenarios.map((layer) => layerToDict(layer, "scenario")),
+  });
+}
+
+function hasUnsavedPipelineChanges() {
+  return state.savedEditorSnapshot === null ||
+    state.savedEditorSnapshot !== pipelineSnapshot();
+}
+
+function syncEditorDirtyState() {
+  const dirty = hasUnsavedPipelineChanges();
+  if (dirty === state.editorDirty) return;
+  state.editorDirty = dirty;
+  renderPipelineList();
+}
+
+function markEditorClean() {
+  state.savedEditorSnapshot = pipelineSnapshot();
+  state.editorDirty = false;
+}
+
+function markEditorUnsaved() {
+  state.savedEditorSnapshot = null;
+  state.editorDirty = true;
+}
+
 // --------------------------------------------------------------------------- //
 // Pipeline list (sidebar)
 // --------------------------------------------------------------------------- //
@@ -1172,19 +1209,33 @@ async function refreshPipelines() {
 
 function renderPipelineList() {
   const list = document.getElementById("pipeline-list");
+  if (!list) return;
   clear(list);
   if (state.pipelines.length === 0) {
     list.appendChild(el("p", { class: "empty", text: "No saved pipelines." }));
     return;
   }
   for (const p of state.pipelines) {
-    const row = el("div", { class: "pl-row" }, [
+    const selected = state.loadedName === p.name;
+    const dirty = selected && state.editorDirty;
+    const openTitle = `${p.bases} bases x ${p.scenarios} scenarios` +
+      (selected ? dirty ? " - currently editing, unsaved changes" : " - currently editing" : "");
+    const row = el("div", { class: `pl-row${selected ? " selected" : ""}${dirty ? " dirty" : ""}` }, [
       el("button", {
         class: "pl-open",
-        text: `${p.name}`,
-        title: `${p.bases} bases x ${p.scenarios} scenarios`,
+        title: openTitle,
+        "aria-current": selected ? "true" : null,
+        "aria-label": dirty ? `${p.name}, unsaved changes` : p.name,
         on: { click: () => loadPipeline(p.name) },
-      }),
+      }, [
+        el("span", { class: "pl-name", text: `${p.name}` }),
+        dirty ? el("span", {
+          class: "pl-unsaved-dot",
+          text: "\u2022",
+          title: "Unsaved changes",
+          "aria-hidden": "true",
+        }) : null,
+      ]),
       el("button", {
         class: "small",
         text: "Clone",
@@ -1248,9 +1299,11 @@ async function loadPipeline(name) {
     // thumbnails first, then expand only the scenario they want to edit.
     state.editor.scenarios.forEach((layer) => collapsedLayers.add(layer));
     state.loadedName = data.pipeline && data.pipeline.name ? data.pipeline.name : name;
+    markEditorClean();
     // Run-time config (workflow / slots / seed) and any canvas capture are
     // independent of the pipeline -- leave them untouched on load.
     renderPipelineForm();
+    renderPipelineList();
     setEditorStatus(`loaded "${name}"`, "ok");
   } catch (err) {
     setEditorStatus(`load failed: ${err.message}`, "err");
@@ -1269,7 +1322,9 @@ async function clonePipeline(name) {
     state.editor = loaded;
     state.editor.scenarios.forEach((layer) => collapsedLayers.add(layer));
     state.loadedName = null;
+    markEditorUnsaved();
     renderPipelineForm();
+    renderPipelineList();
     setEditorStatus(`cloned "${name}" -> "${loaded.name}" (unsaved)`, "ok");
   } catch (err) {
     setEditorStatus(`clone failed: ${err.message}`, "err");
@@ -1331,6 +1386,7 @@ async function deletePipeline(name) {
     if (state.loadedName === name) {
       state.editor = blankPipeline();
       state.loadedName = null;
+      markEditorClean();
       renderPipelineForm();
     }
     await refreshPipelines();
@@ -1342,7 +1398,9 @@ async function deletePipeline(name) {
 function newPipeline() {
   state.editor = blankPipeline();
   state.loadedName = null;
+  markEditorClean();
   renderPipelineForm();
+  renderPipelineList();
   setEditorStatus("new pipeline", "ok");
 }
 
@@ -1356,6 +1414,7 @@ async function savePipeline() {
     // Use PUT to upsert by the current name.
     await api.savePipeline(body.name, body);
     state.loadedName = body.name;
+    markEditorClean();
     await refreshPipelines();
     setEditorStatus(`saved "${body.name}"`, "ok");
   } catch (err) {
@@ -1825,6 +1884,9 @@ async function loadHealth() {
 }
 
 function wireEvents() {
+  document.getElementById("pl-name").addEventListener("input", () => {
+    state.editor.name = getVal("pl-name");
+  });
   document.getElementById("new-btn").addEventListener("click", newPipeline);
   document.getElementById("save-btn").addEventListener("click", savePipeline);
   document.getElementById("detect-btn").addEventListener("click", detectSlots);
@@ -1867,6 +1929,21 @@ function wireEvents() {
     persistRuntime();
   });
   document.getElementById("settings-save").addEventListener("click", saveSettings);
+
+  // Pipeline controls are created dynamically, so use bubbling events to
+  // refresh the dirty state after any editor interaction. Snapshot comparison
+  // filters out UI-only actions such as collapsing cards.
+  for (const eventName of ["input", "change", "click"]) {
+    document.addEventListener(eventName, syncEditorDirtyState);
+  }
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasUnsavedPipelineChanges()) return;
+    event.preventDefault();
+    // Required by Chrome/Edge and older browsers; browsers intentionally show
+    // their own localized message rather than custom text.
+    event.returnValue = "";
+  });
 }
 
 async function main() {
@@ -1881,6 +1958,7 @@ async function main() {
   await loadRuntimeFromSettings(); // restore run-time config before first render
   renderPipelineForm();
   renderRuntimeForm();
+  markEditorClean();
   await refreshPipelines();
 
   // Pick up a workflow handed off from the ComfyUI canvas, if any, and map its
