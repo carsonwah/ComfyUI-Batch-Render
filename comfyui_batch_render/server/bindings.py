@@ -158,12 +158,14 @@ class ComfyDeps:
         tags = data.get("tags")
         tags = [str(t) for t in tags if t] if isinstance(tags, list) else []
         prompt_options = cls._extract_prompt_options(data, civitai)
+        example_prompts = cls._extract_example_prompts(data, civitai)
         return {
             "model_name": str(data.get("model_name") or ""),
             "base_model": str(data.get("base_model") or ""),
             "tags": tags,
             "triggers": ",\n".join(prompt_options),
             "prompt_options": prompt_options,
+            "example_prompts": example_prompts,
             "nsfw_level": int(data.get("preview_nsfw_level") or 0),
         }
 
@@ -193,6 +195,39 @@ class ComfyDeps:
                 if stripped:
                     return [stripped]
         return []
+
+    @staticmethod
+    def _extract_example_prompts(data: dict, civitai: dict) -> list[str]:
+        """Extract usable positive prompts from Civitai example-image metadata."""
+        prompts: list[str] = []
+        collections = (
+            civitai.get("images"),
+            civitai.get("customImages"),
+            data.get("images"),
+        )
+        for images in collections:
+            if not isinstance(images, list):
+                continue
+            for image in images:
+                if not isinstance(image, dict):
+                    continue
+                meta = image.get("meta")
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except (TypeError, ValueError):
+                        meta = None
+                if not isinstance(meta, dict):
+                    continue
+                prompt = meta.get("prompt") or meta.get("positivePrompt")
+                if not isinstance(prompt, str):
+                    continue
+                prompt = _strip_lora_tags(prompt).strip()
+                if prompt and prompt not in prompts:
+                    prompts.append(prompt)
+                if len(prompts) >= 20:
+                    return prompts
+        return prompts
 
     @classmethod
     def _extract_triggers(cls, data: dict, civitai: dict) -> str:

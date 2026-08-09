@@ -40,6 +40,7 @@ class Layer:
     negative: str = ""
     checkpoint: str | None = None  # None => inherit
     loras: list[LoraRef] = field(default_factory=list)
+    enabled: bool = True  # disabled scenarios stay saved but do not render
 
     @classmethod
     def from_dict(cls, d: Any) -> "Layer":
@@ -52,6 +53,7 @@ class Layer:
             negative=d.get("negative", ""),
             checkpoint=d.get("checkpoint"),
             loras=[LoraRef.from_dict(x) for x in d.get("loras", [])],
+            enabled=d.get("enabled", True) is not False,
         )
 
 

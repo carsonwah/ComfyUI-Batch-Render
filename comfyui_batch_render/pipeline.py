@@ -97,6 +97,8 @@ def expand_jobs(
     index = 0
     for base in pipeline.bases:
         for scenario in pipeline.scenarios:
+            if not scenario.enabled:
+                continue
             if spec.mode == "fixed":
                 seeds = [int(spec.value)]
             else:

@@ -76,6 +76,23 @@ def test_fixed_seed_reused_everywhere():
     assert all(j.seed == 1234 for j in jobs)
 
 
+def test_disabled_scenarios_are_preserved_but_not_expanded():
+    p = make_pipeline(
+        scenarios=[
+            {"name": "Enabled", "enabled": True},
+            {"name": "Disabled", "enabled": False},
+            {"name": "Legacy"},
+        ]
+    )
+    assert [s.enabled for s in p.scenarios] == [True, False, True]
+    assert [job.scenario.name for job in expand_jobs(p)] == [
+        "Enabled",
+        "Legacy",
+        "Enabled",
+        "Legacy",
+    ]
+
+
 def test_fixed_seed_missing_value_raises():
     p = make_pipeline(seed={"mode": "fixed"})
     with pytest.raises(ValueError):

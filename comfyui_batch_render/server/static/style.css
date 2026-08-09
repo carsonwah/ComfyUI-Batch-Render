@@ -190,6 +190,7 @@ h3 {
 /* Inputs */
 input[type="text"],
 input[type="number"],
+input[type="search"],
 textarea,
 select {
   background: var(--panel2);
@@ -313,6 +314,24 @@ button.small {
   align-items: center;
   margin-bottom: 0.4rem;
 }
+.scenario-card .card-head { cursor: pointer; }
+.scenario-card .card-head input,
+.scenario-card .card-head button,
+.scenario-card .card-head label { cursor: initial; }
+.scenario-card.scenario-disabled {
+  opacity: 0.62;
+  border-style: dashed;
+}
+.scenario-card.scenario-disabled:hover { opacity: 0.78; }
+.scenario-enabled-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.scenario-enabled-control input { accent-color: var(--accent); }
 .scenario-cover {
   flex: 0 0 auto;
   width: 64px;
@@ -465,51 +484,16 @@ button.small.caret {
   will-change: transform;
 }
 
-/* LoRA autocomplete picker */
+/* LoRA picker */
 .lora-picker {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
   min-width: 0;
 }
 .lora-search {
   width: 100%;
-}
-.lora-dropdown {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  z-index: 30;
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-}
-.lora-dropdown.hidden {
-  display: none;
-}
-.lora-item {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.3rem 0.4rem;
   cursor: pointer;
-}
-.lora-item:hover,
-.lora-item.active {
-  background: var(--panel2);
-}
-.lora-thumb {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 4px;
-  background: var(--panel2);
-}
-.lora-thumb-none {
-  border: 1px dashed var(--border);
 }
 .lora-meta {
   min-width: 0;
@@ -535,10 +519,146 @@ button.small.caret {
   padding: 0.05rem 0.4rem;
   white-space: nowrap;
 }
-.lora-empty {
-  padding: 0.5rem;
+/* Full LoRA browser */
+.lora-browser-dialog {
+  width: min(1180px, calc(100vw - 2rem));
+  height: min(820px, calc(100vh - 2rem));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+.lora-browser-dialog::backdrop {
+  background: rgba(3, 5, 9, 0.78);
+  backdrop-filter: blur(5px);
+}
+.lora-browser-shell {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100%;
+}
+.lora-browser-head {
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel2);
+}
+.lora-browser-head h2 { font-size: 1.05rem; }
+.lora-browser-head p { margin: 0.15rem 0 0; }
+.lora-browser-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.lora-browser-main {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+}
+.lora-folder-list {
+  overflow: auto;
+  padding: 0.6rem;
+  border-right: 1px solid var(--border);
+  background: rgba(10, 12, 17, 0.32);
+}
+button.lora-folder {
+  display: block;
+  width: 100%;
+  padding: 0.42rem 0.5rem 0.42rem calc(0.5rem + (var(--folder-depth) * 0.8rem));
+  border-color: transparent;
+  background: transparent;
   color: var(--muted);
-  font-style: italic;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.lora-folder:hover { color: var(--fg); }
+button.lora-folder.active {
+  color: var(--accent);
+  border-color: rgba(232, 169, 91, 0.3);
+  background: var(--accent-soft);
+}
+.lora-browser-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-content: start;
+  overflow: auto;
+  padding: 0.8rem;
+}
+.lora-browser-card {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  min-height: 210px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(10, 12, 17, 0.34);
+}
+.lora-browser-card.selected { border-color: rgba(232, 169, 91, 0.58); }
+.lora-browser-preview {
+  width: 150px;
+  height: 100%;
+  min-height: 210px;
+  object-fit: cover;
+  object-position: center top;
+  border-right: 1px solid var(--border);
+  background: var(--panel2);
+}
+.lora-browser-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.65rem;
+}
+.lora-browser-actions {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+.lora-example-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 145px;
+  overflow: auto;
+}
+.lora-example {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: start;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel2);
+}
+.lora-example-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.lora-browser-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 4rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
 }
 
 /* Empty states */
@@ -620,6 +740,7 @@ button.small.caret {
 .status-pill.attention,
 .people-pill.warning { color: var(--warning); border-color: rgba(241, 188, 105, 0.42); background: rgba(241, 188, 105, 0.08); }
 .status-pill.ready { color: var(--ok); border-color: rgba(114, 214, 160, 0.4); background: rgba(114, 214, 160, 0.07); }
+.status-pill.disabled { color: var(--muted); }
 .cast-section {
   margin: 0.45rem 0 0.7rem;
   padding: 0.65rem 0.7rem;
@@ -782,6 +903,14 @@ button.small.caret {
   .prompt-workbench,
   .scenario-card .overrides-box:not([hidden]) { grid-template-columns: 1fr; }
   .recipe-list { height: auto; max-height: 10rem; }
+  .lora-browser-dialog { width: 100vw; height: 100vh; border-radius: 0; }
+  .lora-browser-main { grid-template-columns: 1fr; }
+  .lora-folder-list { display: flex; border-right: 0; border-bottom: 1px solid var(--border); }
+  button.lora-folder { width: auto; padding-left: 0.5rem; flex: 0 0 auto; }
+  .lora-browser-results { grid-template-columns: 1fr; }
+  .lora-browser-card { grid-template-columns: 105px minmax(0, 1fr); }
+  .lora-browser-preview { width: 105px; }
+  .lora-browser-toolbar { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 761px) and (max-width: 1080px) {
@@ -792,4 +921,5 @@ button.small.caret {
   .prompt-workbench,
   .scenario-card .overrides-box:not([hidden]) { grid-template-columns: 1fr; }
   .recipe-list { height: auto; max-height: 10rem; }
+  .lora-browser-results { grid-template-columns: 1fr; }
 }

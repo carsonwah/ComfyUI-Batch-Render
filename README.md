@@ -6,7 +6,8 @@ Define a **base** (e.g. a character: checkpoint + prompt + LoRA(s)) and a list o
 (each its own checkpoint? + prompt + LoRA(s)), then render every combination automatically —
 no more manually swapping a LoRA, editing its prompt, and re-queuing one image at a time.
 
-Base and scenario are the **same shape** (`Layer = { checkpoint?, prompt, loras[] }`); a render
+Base and scenario are the **same shape** (`Layer = { enabled?, checkpoint?, prompt, loras[] }`);
+disabled scenarios remain in the saved pipeline but are skipped when rendering. A render
 combines one base + one scenario. LoRAs are loaded by splicing a chain of stock `LoraLoader`
 nodes into *your own* exported workflow — no required custom nodes, no assumed folder layout.
 

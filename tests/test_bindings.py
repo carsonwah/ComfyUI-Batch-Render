@@ -34,3 +34,21 @@ def test_extract_triggers_fallback_strips_lora_tags():
 def test_extract_prompt_options_keeps_metadata_recipes_separate():
     civitai = {"trainedWords": ["<lora:x:1>, pose one", "pose two", "pose one"]}
     assert ComfyDeps._extract_prompt_options({}, civitai) == ["pose one", "pose two"]
+
+
+def test_extract_example_prompts_from_civitai_and_custom_images():
+    civitai = {
+        "images": [
+            {"meta": {"prompt": "first example"}},
+            {"meta": '{"prompt": "<lora:x:1>, second example"}'},
+        ],
+        "customImages": [
+            {"meta": {"positivePrompt": "third example"}},
+            {"meta": {"prompt": "first example"}},
+        ],
+    }
+    assert ComfyDeps._extract_example_prompts({}, civitai) == [
+        "first example",
+        "second example",
+        "third example",
+    ]

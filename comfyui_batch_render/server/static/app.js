@@ -57,6 +57,7 @@ function blankRuntime() {
 function blankLayer(name) {
   return {
     name: name || "layer",
+    enabled: true,
     checkpoint: null,
     prompt: "",
     negative: "",
@@ -93,32 +94,25 @@ function loraTriggersFor(file) {
 
 function loraPromptOptions(file) {
   const m = loraByFile(file);
-  return m && Array.isArray(m.prompt_options) ? m.prompt_options : [];
+  if (!m) return [];
+  const triggers = Array.isArray(m.prompt_options) ? m.prompt_options : [];
+  const examples = Array.isArray(m.example_prompts) ? m.example_prompts : [];
+  return [...new Set([...triggers, ...examples])];
+}
+
+function loraDefaultPrompt(file) {
+  const m = loraByFile(file);
+  const options = m && Array.isArray(m.prompt_options) ? m.prompt_options : [];
+  return options[0] || loraTriggersFor(file);
 }
 
 function newLora(role = "scenario") {
   return { file: "", weight: 1.0, triggers: "", role, reviewed: false };
 }
 
-// Substring filter over filename, model name, tags and subfolder. Capped so a
-// few-thousand-LoRA library never renders a giant dropdown at once.
+// Cap the number of cards rendered at once so a few-thousand-LoRA library does
+// not create an enormous DOM. The browser still reports the full match count.
 const LORA_RESULT_CAP = 50;
-function filterLoras(query) {
-  const q = (query || "").trim().toLowerCase();
-  const loras = state.models.loras;
-  if (!q) return loras.slice(0, LORA_RESULT_CAP);
-  const out = [];
-  for (const m of loras) {
-    const hay = [m.name, m.model_name, m.subfolder, (m.tags || []).join(" ")]
-      .join(" ")
-      .toLowerCase();
-    if (hay.includes(q)) {
-      out.push(m);
-      if (out.length >= LORA_RESULT_CAP) break;
-    }
-  }
-  return out;
-}
 
 function previewUrl(file) {
   return `/api/brp/preview?kind=loras&file=${encodeURIComponent(file)}`;
@@ -136,7 +130,7 @@ function seedCount() {
 function updateCombos() {
   // The base is always a single set of params, so it never multiplies the count.
   const b = Math.max(1, state.editor.bases.length);
-  const s = state.editor.scenarios.length;
+  const s = state.editor.scenarios.filter((scenario) => scenario.enabled !== false).length;
   const seeds = seedCount();
   const total = b * s * seeds;
   const node = document.getElementById("combo-counter");
@@ -211,10 +205,11 @@ function refreshScenarioCardStatus(layer) {
   if (!card) return;
   const guidance = castGuidance(layer);
   const attention = scenarioNeedsAttention(layer);
+  const enabled = layer.enabled !== false;
   const status = card.querySelector(".status-pill");
   if (status) {
-    status.className = `status-pill ${attention ? "attention" : "ready"}`;
-    status.textContent = attention ? "Needs review" : "Ready";
+    status.className = `status-pill ${enabled ? (attention ? "attention" : "ready") : "disabled"}`;
+    status.textContent = enabled ? (attention ? "Needs review" : "Ready") : "Disabled";
   }
   const people = card.querySelector(".people-pill");
   if (people) {
@@ -236,12 +231,14 @@ function refreshScenarioCardStatus(layer) {
 }
 
 function scenarioNeedsAttention(layer) {
+  if (layer.enabled === false) return false;
   const unreviewed = layer.loras.some((l) => l.file && !l.reviewed);
   return unreviewed || castCount(layer) < scenarioPeople(layer);
 }
 
 function updateReviewSummary() {
-  const scenarios = state.editor.scenarios;
+  const allScenarios = state.editor.scenarios;
+  const scenarios = state.editor.scenarios.filter((scenario) => scenario.enabled !== false);
   const needsReview = scenarios.filter(scenarioNeedsAttention).length;
   const castGaps = scenarios.filter((s) => castCount(s) < scenarioPeople(s)).length;
   const summary = document.getElementById("review-summary");
@@ -251,7 +248,7 @@ function updateReviewSummary() {
   if (summary) {
     summary.textContent = needsReview
       ? `${needsReview} scenario${needsReview === 1 ? "" : "s"} need attention`
-      : scenarios.length ? "All scenarios reviewed" : "Nothing to review";
+      : scenarios.length ? "All scenarios reviewed" : allScenarios.length ? "No scenarios enabled" : "Nothing to review";
   }
   if (cast) cast.textContent = castGaps ? ` · ${castGaps} cast gap${castGaps === 1 ? "" : "s"}` : "";
   if (filter) {
@@ -447,21 +444,24 @@ function layerCard(kind, layer, index) {
   // Scenarios can be collapsed to keep a long list scrollable. The base is a
   // single card, so it's always expanded and gets no toggle.
   const collapsible = kind !== "bases";
+  let caret = null;
+  const toggleCollapsed = () => {
+    if (!collapsible) return;
+    const collapsed = !collapsedLayers.has(layer);
+    if (collapsed) collapsedLayers.add(layer);
+    else collapsedLayers.delete(layer);
+    body.hidden = collapsed;
+    if (caret) caret.textContent = collapsed ? "▸" : "▾";
+    if (kind === "scenarios") updateToggleAllLabel();
+  };
   if (collapsible) {
     if (collapsedLayers.has(layer)) body.hidden = true;
-    const caret = el("button", {
+    caret = el("button", {
       class: "small caret",
       text: collapsedLayers.has(layer) ? "▸" : "▾",
       title: "collapse / expand",
       on: {
-        click: () => {
-          const collapsed = !collapsedLayers.has(layer);
-          if (collapsed) collapsedLayers.add(layer);
-          else collapsedLayers.delete(layer);
-          body.hidden = collapsed;
-          caret.textContent = collapsed ? "▸" : "▾";
-          if (kind === "scenarios") updateToggleAllLabel();
-        },
+        click: toggleCollapsed,
       },
     });
     head.push(caret);
@@ -485,12 +485,23 @@ function layerCard(kind, layer, index) {
     })
   );
   if (kind === "scenarios") {
+    const enabled = layer.enabled !== false;
+    const enabledCheckbox = el("input", { type: "checkbox" });
+    enabledCheckbox.checked = enabled;
+    enabledCheckbox.addEventListener("change", () => {
+      layer.enabled = enabledCheckbox.checked;
+      renderLayerList("scenarios");
+    });
+    head.push(el("label", {
+      class: "scenario-enabled-control",
+      title: enabled ? "Disable this scenario" : "Enable this scenario",
+    }, [enabledCheckbox, el("span", { text: "Enabled" })]));
     const required = scenarioPeople(layer);
     const assigned = castCount(layer);
     const attention = scenarioNeedsAttention(layer);
     head.push(el("span", {
-      class: `status-pill ${attention ? "attention" : "ready"}`,
-      text: attention ? "Needs review" : "Ready",
+      class: `status-pill ${enabled ? (attention ? "attention" : "ready") : "disabled"}`,
+      text: enabled ? (attention ? "Needs review" : "Ready") : "Disabled",
     }));
     head.push(el("span", {
       class: `people-pill ${assigned < required ? "warning" : ""}`,
@@ -515,8 +526,18 @@ function layerCard(kind, layer, index) {
     );
   }
 
-  return el("article", { class: `card ${kind === "scenarios" ? "scenario-card" : "base-card"}`, dataset: { scenarioIndex: index } }, [
-    el("div", { class: "card-head" }, head),
+  const cardHead = el("div", {
+    class: "card-head",
+    title: collapsible ? "Click the header to collapse or expand" : null,
+    on: collapsible ? {
+      click: (event) => {
+        if (event.target.closest("button, input, select, textarea, label, a")) return;
+        toggleCollapsed();
+      },
+    } : null,
+  }, head);
+  return el("article", { class: `card ${kind === "scenarios" ? "scenario-card" : "base-card"} ${layer.enabled === false ? "scenario-disabled" : ""}`, dataset: { scenarioIndex: index } }, [
+    cardHead,
     body,
   ]);
 }
@@ -602,13 +623,13 @@ function renderLoras(box, layer, role = "scenario") {
       if (role !== "base") refreshScenarioCardStatus(layer);
     });
 
-    const picker = createLoraPicker(lora.file, (file) => {
+    const picker = createLoraPicker(lora.file, (file, chosenPrompt = null) => {
       lora.file = file;
-      const options = loraPromptOptions(file);
+      const defaultPrompt = loraDefaultPrompt(file);
       // Start with one coherent recipe instead of concatenating every metadata
       // alternative. The review badge remains until the user confirms it.
-      lora.selected_prompts = options.length ? [options[0]] : [];
-      const t = options[0] || loraTriggersFor(file);
+      const t = chosenPrompt || defaultPrompt;
+      lora.selected_prompts = t ? [t] : [];
       lora.triggers = t;
       lora.reviewed = false;
       if (role === "base") {
@@ -735,133 +756,206 @@ function loraDisplayName(file) {
   return prettyName(m ? m.name : file || "");
 }
 
-// An autocomplete LoRA picker: a search input backed by a dropdown of filtered
-// models, each with a lazy preview thumbnail and a base-model badge. Calls
-// onPick(file) when a model is chosen. Replaces the old flat <select>, which
-// was unusable across hundreds of files and also dropped the subfolder needed
-// to actually load the LoRA.
+// A full-library browser is more usable than an inline dropdown once a ComfyUI
+// install has hundreds of LoRAs. Each picker remembers its most recent query.
 function createLoraPicker(initialFile, onPick) {
   let currentFile = initialFile || "";
-  let results = [];
-  let active = -1;
-  let open = false;
-
+  let lastQuery = "";
   const wrap = el("div", { class: "lora-picker" });
   const input = el("input", {
     type: "text",
     class: "lora-search",
-    placeholder: "search LoRA…",
+    placeholder: "Search or browse LoRAs…",
     value: loraDisplayName(currentFile),
-    title: currentFile,
+    title: currentFile || "Open the LoRA browser",
+    readonly: true,
   });
-  const panel = el("div", { class: "lora-dropdown hidden" });
-  wrap.appendChild(input);
-  wrap.appendChild(panel);
+  const browse = el("button", { class: "small", text: "Browse", type: "button" });
 
-  function render() {
-    clear(panel);
-    if (results.length === 0) {
-      panel.appendChild(el("div", { class: "lora-empty", text: "no matches" }));
+  const open = () => openLoraBrowser({
+    initialFile: currentFile,
+    initialQuery: lastQuery,
+    onQuery: (query) => (lastQuery = query),
+    onPick: (file, prompt) => {
+      currentFile = file;
+      const model = loraByFile(file);
+      input.value = prettyName(model ? model.name : file);
+      input.title = file;
+      onPick(file, prompt);
+    },
+  });
+  input.addEventListener("click", open);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  });
+  browse.addEventListener("click", open);
+  wrap.append(input, browse);
+  return wrap;
+}
+
+function openLoraBrowser({ initialFile, initialQuery, onQuery, onPick }) {
+  let folder = "";
+  const dialog = el("dialog", { class: "lora-browser-dialog" });
+  const search = el("input", {
+    type: "search",
+    class: "lora-browser-search",
+    placeholder: "Search filename, model name, tags, or folder…",
+    value: initialQuery || "",
+  });
+  const folderList = el("nav", { class: "lora-folder-list", "aria-label": "LoRA folders" });
+  const results = el("div", { class: "lora-browser-results" });
+  const count = el("span", { class: "muted small" });
+
+  const normalizedFolder = (model) => String(model.subfolder || "").replace(/\\/g, "/");
+  const folderNames = new Set();
+  for (const model of state.models.loras) {
+    const parts = normalizedFolder(model).split("/").filter(Boolean);
+    for (let i = 1; i <= parts.length; i += 1) folderNames.add(parts.slice(0, i).join("/"));
+  }
+  const folders = [...folderNames].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
+  function inScope(model) {
+    const modelFolder = normalizedFolder(model);
+    return !folder || modelFolder === folder || modelFolder.startsWith(`${folder}/`);
+  }
+
+  function matches(model) {
+    if (!inScope(model)) return false;
+    const query = search.value.trim().toLowerCase();
+    if (!query) return true;
+    return [model.name, model.model_name, model.subfolder, ...(model.tags || [])]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  }
+
+  function choose(model, prompt = null) {
+    try { dialog.close(); } catch (_error) {}
+    dialog.remove();
+    onPick(model.file, prompt);
+  }
+
+  function renderFolders() {
+    clear(folderList);
+    const addFolder = (value, label, depth, modelsCount) => {
+      folderList.appendChild(el("button", {
+        class: `lora-folder ${folder === value ? "active" : ""}`,
+        type: "button",
+        text: `${label} (${modelsCount})`,
+        title: value || "All folders",
+        style: `--folder-depth:${depth}`,
+        on: { click: () => {
+          folder = value;
+          renderFolders();
+          renderResults();
+        } },
+      }));
+    };
+    addFolder("", "All LoRAs", 0, state.models.loras.length);
+    for (const name of folders) {
+      const scopedCount = state.models.loras.filter((model) => {
+        const modelFolder = normalizedFolder(model);
+        return modelFolder === name || modelFolder.startsWith(`${name}/`);
+      }).length;
+      addFolder(name, name.split("/").pop(), name.split("/").length, scopedCount);
+    }
+  }
+
+  function resultCard(model) {
+    const image = model.preview
+      ? el("img", { class: "lora-browser-preview", loading: "lazy", src: previewUrl(model.file), alt: "" })
+      : el("div", { class: "lora-browser-preview lora-preview-empty", text: "No preview" });
+    const examples = Array.isArray(model.example_prompts) ? model.example_prompts : [];
+    const exampleList = el("div", { class: "lora-example-list" });
+    if (examples.length) {
+      examples.forEach((prompt, index) => {
+        exampleList.appendChild(el("div", { class: "lora-example" }, [
+          el("div", { class: "lora-example-text", text: prompt, title: prompt }),
+          el("button", {
+            class: "small",
+            type: "button",
+            text: "Use prompt",
+            title: `Select this LoRA and use example ${index + 1} as its prompt`,
+            on: { click: () => choose(model, prompt) },
+          }),
+        ]));
+      });
+    } else {
+      exampleList.appendChild(el("p", { class: "muted small", text: "No example prompts in metadata." }));
+    }
+    return el("article", { class: `lora-browser-card ${model.file === initialFile ? "selected" : ""}` }, [
+      image,
+      el("div", { class: "lora-browser-card-body" }, [
+        el("div", { class: "row-between" }, [
+          el("div", { class: "lora-meta" }, [
+            el("strong", { class: "lora-name", text: prettyName(model.name) }),
+            el("div", { class: "lora-sub", text: model.subfolder || "Root folder" }),
+          ]),
+          model.base_model ? el("span", { class: "lora-badge", text: model.base_model }) : null,
+        ]),
+        el("div", { class: "row-between lora-browser-actions" }, [
+          el("span", { class: "sub-label", text: examples.length ? `Example prompts (${examples.length})` : "Prompt examples" }),
+          el("button", {
+            class: "small primary",
+            type: "button",
+            text: model.file === initialFile ? "Select again" : "Select LoRA",
+            on: { click: () => choose(model) },
+          }),
+        ]),
+        exampleList,
+      ]),
+    ]);
+  }
+
+  function renderResults() {
+    clear(results);
+    onQuery(search.value);
+    const allMatches = state.models.loras.filter(matches);
+    const shown = allMatches.slice(0, LORA_RESULT_CAP);
+    const scopeName = folder || "all folders";
+    count.textContent = allMatches.length > shown.length
+      ? `${allMatches.length} matches in ${scopeName}; showing first ${shown.length}`
+      : `${allMatches.length} match${allMatches.length === 1 ? "" : "es"} in ${scopeName}`;
+    if (!shown.length) {
+      results.appendChild(el("div", { class: "lora-browser-empty" }, [
+        el("strong", { text: "No matching LoRAs" }),
+        el("span", { class: "muted small", text: "Try a different search or choose a broader folder." }),
+      ]));
       return;
     }
-    results.forEach((m, idx) => {
-      const thumb = m.preview
-        ? el("img", {
-            class: "lora-thumb",
-            loading: "lazy",
-            src: previewUrl(m.file),
-            alt: "",
-          })
-        : el("div", { class: "lora-thumb lora-thumb-none" });
-      const meta = el("div", { class: "lora-meta" }, [
-        el("div", { class: "lora-name", text: prettyName(m.name) }),
-        el("div", { class: "lora-sub", text: m.subfolder || "" }),
-      ]);
-      const item = el(
-        "div",
-        {
-          class: "lora-item" + (idx === active ? " active" : ""),
-          // mousedown fires before the input's blur, so the pick wins the race.
-          on: {
-            mousedown: (ev) => {
-              ev.preventDefault();
-              choose(m);
-            },
-          },
-        },
-        [thumb, meta, m.base_model ? el("span", { class: "lora-badge", text: m.base_model }) : null]
-      );
-      panel.appendChild(item);
-    });
+    shown.forEach((model) => results.appendChild(resultCard(model)));
   }
 
-  function show() {
-    open = true;
-    panel.classList.remove("hidden");
-  }
-  function hide() {
-    open = false;
-    active = -1;
-    panel.classList.add("hidden");
-  }
-  function refresh() {
-    results = filterLoras(input.value === loraDisplayName(currentFile) ? "" : input.value);
-    active = -1;
-    render();
-  }
-  function choose(m) {
-    currentFile = m.file;
-    onPick(m.file);
-    input.value = prettyName(m.name);
-    input.title = m.file;
-    hide();
-  }
-  function scrollActive() {
-    const node = panel.children[active];
-    if (node && node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
-  }
-
-  input.addEventListener("focus", () => {
-    input.select();
-    refresh();
-    show();
+  const close = () => {
+    try { dialog.close(); } catch (_error) {}
+    dialog.remove();
+  };
+  dialog.appendChild(el("div", { class: "lora-browser-shell" }, [
+    el("div", { class: "lora-browser-head row-between" }, [
+      el("div", {}, [el("h2", { text: "Choose a LoRA" }), el("p", { class: "muted small", text: "Search the library, browse folders, or use a prompt from an example image." })]),
+      el("button", { class: "small", type: "button", text: "Close", on: { click: close } }),
+    ]),
+    el("div", { class: "lora-browser-toolbar" }, [search, count]),
+    el("div", { class: "lora-browser-main" }, [folderList, results]),
+  ]));
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    close();
   });
-  input.addEventListener("input", () => {
-    refresh();
-    show();
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) close();
   });
-  input.addEventListener("blur", () => {
-    // Discard unconfirmed typing: restore the label of the current selection.
-    input.value = loraDisplayName(currentFile);
-    input.title = currentFile;
-    hide();
-  });
-  input.addEventListener("keydown", (ev) => {
-    if (ev.key === "ArrowDown") {
-      ev.preventDefault();
-      if (!open) {
-        refresh();
-        show();
-      }
-      active = Math.min(active + 1, results.length - 1);
-      render();
-      scrollActive();
-    } else if (ev.key === "ArrowUp") {
-      ev.preventDefault();
-      active = Math.max(active - 1, 0);
-      render();
-      scrollActive();
-    } else if (ev.key === "Enter") {
-      if (open && active >= 0 && active < results.length) {
-        ev.preventDefault();
-        choose(results[active]);
-      }
-    } else if (ev.key === "Escape") {
-      input.blur();
-    }
-  });
-
-  return wrap;
+  search.addEventListener("input", renderResults);
+  document.body.appendChild(dialog);
+  renderFolders();
+  renderResults();
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  search.focus();
+  search.select();
 }
 
 function field(label, control) {
@@ -894,6 +988,18 @@ function updateToggleAllLabel() {
   const hasScenarios = state.editor.scenarios.length > 0;
   btn.disabled = !hasScenarios;
   btn.textContent = allScenariosCollapsed() ? "Expand all" : "Collapse all";
+
+  const enableBtn = document.getElementById("enable-all-scenarios");
+  if (!enableBtn) return;
+  enableBtn.disabled = !hasScenarios;
+  const allEnabled = hasScenarios && state.editor.scenarios.every((layer) => layer.enabled !== false);
+  enableBtn.textContent = allEnabled ? "Disable all" : "Enable all";
+}
+
+function toggleAllScenariosEnabled() {
+  const shouldEnable = state.editor.scenarios.some((layer) => layer.enabled === false);
+  state.editor.scenarios.forEach((layer) => (layer.enabled = shouldEnable));
+  renderLayerList("scenarios");
 }
 
 // --------------------------------------------------------------------------- //
@@ -1025,6 +1131,7 @@ function assembleRunPayload() {
 function layerToDict(layer, defaultRole = "scenario") {
   return {
     name: layer.name,
+    enabled: layer.enabled !== false,
     checkpoint: layer.checkpoint || null,
     prompt: layer.prompt || "",
     negative: layer.negative || "",
@@ -1193,6 +1300,7 @@ function normalizeLoaded(p) {
 function normalizeLayer(l) {
   return {
     name: l.name || "layer",
+    enabled: l.enabled !== false,
     checkpoint: l.checkpoint || null,
     prompt: l.prompt || "",
     negative: l.negative || "",
@@ -1530,6 +1638,10 @@ function handleProgress(msg) {
 
 async function runPipeline() {
   if (state.run.active) return;
+  if (!state.editor.scenarios.some((scenario) => scenario.enabled !== false)) {
+    setEditorStatus("enable at least one scenario before running", "err");
+    return;
+  }
   const runPayload = assembleRunPayload();
   persistRuntime(); // remember the run-time config used for this run
   clear(document.getElementById("run-log"));
@@ -1721,6 +1833,9 @@ function wireEvents() {
       );
       renderLayerList("scenarios");
     });
+  document
+    .getElementById("enable-all-scenarios")
+    .addEventListener("click", toggleAllScenariosEnabled);
   document
     .getElementById("toggle-all-scenarios")
     .addEventListener("click", () => setAllScenariosCollapsed(!allScenariosCollapsed()));
