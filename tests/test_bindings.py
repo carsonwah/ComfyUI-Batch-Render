@@ -29,3 +29,8 @@ def test_extract_triggers_drops_pure_lora_tag_entry():
 def test_extract_triggers_fallback_strips_lora_tags():
     data = {"activation_text": "<lora:x:1>, plain"}
     assert ComfyDeps._extract_triggers(data, {}) == "plain"
+
+
+def test_extract_prompt_options_keeps_metadata_recipes_separate():
+    civitai = {"trainedWords": ["<lora:x:1>, pose one", "pose two", "pose one"]}
+    assert ComfyDeps._extract_prompt_options({}, civitai) == ["pose one", "pose two"]

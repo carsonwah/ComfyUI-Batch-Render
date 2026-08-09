@@ -21,6 +21,7 @@ const state = {
   // session, or null when using the manual template-path field instead.
   captured: null,
   run: { active: false, id: null, ws: null },
+  reviewOnly: false,
 };
 
 // localStorage key the ComfyUI top-menu extension writes the current graph to.
@@ -54,7 +55,14 @@ function blankRuntime() {
 }
 
 function blankLayer(name) {
-  return { name: name || "layer", checkpoint: null, prompt: "", negative: "", loras: [] };
+  return {
+    name: name || "layer",
+    checkpoint: null,
+    prompt: "",
+    negative: "",
+    participant_count: 0,
+    loras: [],
+  };
 }
 
 // --------------------------------------------------------------------------- //
@@ -81,6 +89,15 @@ function loraByFile(file) {
 function loraTriggersFor(file) {
   const m = loraByFile(file);
   return m ? m.triggers || "" : "";
+}
+
+function loraPromptOptions(file) {
+  const m = loraByFile(file);
+  return m && Array.isArray(m.prompt_options) ? m.prompt_options : [];
+}
+
+function newLora(role = "scenario") {
+  return { file: "", weight: 1.0, triggers: "", role, reviewed: false };
 }
 
 // Substring filter over filename, model name, tags and subfolder. Capped so a
@@ -128,6 +145,80 @@ function updateCombos() {
   }
 }
 
+// Metadata recipes often contain people-count tokens. Use them as a helpful
+// default, while keeping the count explicitly overridable per scenario.
+function inferPeople(text) {
+  let best = 1;
+  for (const rawLine of String(text || "").toLowerCase().split("\n")) {
+    const line = rawLine.replace(/\b(mmf|mff)\s+threesome\b/g, "threesome");
+    let count = /\b(threesome|group sex)\b/.test(line) ? 3 : 0;
+    let explicit = 0;
+    for (const match of line.matchAll(/\b(\d+)\s*(girls?|boys?|women|men|people|persons?)\b/g)) {
+      explicit += Number(match[1]) || 0;
+    }
+    count = Math.max(count, explicit);
+    if (/\bmultiple\s+(girls?|boys?|women|men|people|persons?)\b/.test(line)) {
+      count = Math.max(count, explicit + 2);
+    }
+    if (/\bsolo\b/.test(line)) count = Math.max(count, 1);
+    best = Math.max(best, count || 1);
+  }
+  return Math.min(best, 4);
+}
+
+function scenarioPeople(layer) {
+  const explicit = Number(layer.participant_count) || 0;
+  if (explicit > 0) return explicit;
+  const source = [layer.prompt]
+    .concat(layer.loras.filter((l) => l.role !== "character").map((l) => l.triggers))
+    .join("\n");
+  return inferPeople(source);
+}
+
+function castCount(layer) {
+  return 1 + layer.loras.filter((l) => l.role === "character" && l.file).length;
+}
+
+function scenarioNeedsAttention(layer) {
+  const unreviewed = layer.loras.some((l) => l.file && !l.reviewed);
+  return unreviewed || castCount(layer) < scenarioPeople(layer);
+}
+
+function updateReviewSummary() {
+  const scenarios = state.editor.scenarios;
+  const needsReview = scenarios.filter(scenarioNeedsAttention).length;
+  const castGaps = scenarios.filter((s) => castCount(s) < scenarioPeople(s)).length;
+  const summary = document.getElementById("review-summary");
+  const cast = document.getElementById("cast-summary");
+  const filter = document.getElementById("review-filter");
+  const next = document.getElementById("review-next");
+  if (summary) {
+    summary.textContent = needsReview
+      ? `${needsReview} scenario${needsReview === 1 ? "" : "s"} need attention`
+      : scenarios.length ? "All scenarios reviewed" : "Nothing to review";
+  }
+  if (cast) cast.textContent = castGaps ? ` · ${castGaps} cast gap${castGaps === 1 ? "" : "s"}` : "";
+  if (filter) {
+    filter.textContent = state.reviewOnly ? "Show all scenarios" : "Show needs review";
+    filter.setAttribute("aria-pressed", String(state.reviewOnly));
+    filter.classList.toggle("active", state.reviewOnly);
+  }
+  if (next) next.disabled = needsReview === 0;
+}
+
+function reviewNextScenario() {
+  const index = state.editor.scenarios.findIndex(scenarioNeedsAttention);
+  if (index < 0) return;
+  collapsedLayers.delete(state.editor.scenarios[index]);
+  renderLayerList("scenarios");
+  const card = document.querySelector(`[data-scenario-index="${index}"]`);
+  if (card) {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    card.classList.add("review-focus");
+    setTimeout(() => card.classList.remove("review-focus"), 1200);
+  }
+}
+
 // --------------------------------------------------------------------------- //
 // Layer cards
 // --------------------------------------------------------------------------- //
@@ -144,8 +235,22 @@ function renderLayerList(kind) {
   if (layers.length === 0) {
     container.appendChild(el("p", { class: "empty", text: `No ${kind} yet.` }));
   }
-  layers.forEach((layer, i) => container.appendChild(layerCard(kind, layer, i)));
-  if (kind === "scenarios") updateToggleAllLabel();
+  let shown = 0;
+  layers.forEach((layer, i) => {
+    if (kind === "scenarios" && state.reviewOnly && !scenarioNeedsAttention(layer)) return;
+    container.appendChild(layerCard(kind, layer, i));
+    shown += 1;
+  });
+  if (kind === "scenarios" && layers.length && !shown) {
+    container.appendChild(el("div", { class: "review-complete" }, [
+      el("strong", { text: "Review complete" }),
+      el("span", { class: "muted small", text: "No scenarios need attention." }),
+    ]));
+  }
+  if (kind === "scenarios") {
+    updateToggleAllLabel();
+    updateReviewSummary();
+  }
   updateCombos();
 }
 
@@ -159,19 +264,18 @@ function layerCard(kind, layer, index) {
 
   const posInput = el("textarea", {
     placeholder: "positive prompt",
-    rows: 2,
+    rows: 5,
+    class: "prompt-editor",
     on: { input: () => (layer.prompt = posInput.value) },
   });
   posInput.value = layer.prompt;
   const negInput = el("textarea", {
     placeholder: "negative prompt",
-    rows: 2,
+    rows: 4,
+    class: "prompt-editor negative-editor",
     on: { input: () => (layer.negative = negInput.value) },
   });
   negInput.value = layer.negative;
-
-  const lorasBox = el("div", { class: "loras-box" });
-  renderLoras(lorasBox, layer);
 
   const overrideFields = [
     field("Checkpoint", ckSel),
@@ -179,16 +283,21 @@ function layerCard(kind, layer, index) {
     field("Negative", negInput),
   ];
 
+  const lorasBox = el("div", { class: "loras-box" });
+  renderLoras(lorasBox, layer, kind === "bases" ? "base" : "scenario");
   const lorasSection = el("div", { class: "loras-section" }, [
     el("div", { class: "row-between" }, [
-      el("span", { class: "sub-label", text: "LoRAs" }),
+      el("div", {}, [
+        el("span", { class: "section-title", text: kind === "bases" ? "Identity LoRAs" : "Scenario LoRAs" }),
+        el("p", { class: "muted small section-help", text: kind === "bases" ? "Character identity, appearance, and default outfit." : "Pose, outfit, scene, or style applied in this scenario." }),
+      ]),
       el("button", {
         class: "small",
         text: "+ LoRA",
         on: {
           click: () => {
-            layer.loras.push({ file: "", weight: 1.0, triggers: "" });
-            renderLoras(lorasBox, layer);
+            layer.loras.push(newLora(kind === "bases" ? "base" : "scenario"));
+            renderLoras(lorasBox, layer, kind === "bases" ? "base" : "scenario");
           },
         },
       }),
@@ -201,6 +310,41 @@ function layerCard(kind, layer, index) {
     // The base carries the main prompt/checkpoint, so show those fields directly.
     body = el("div", { class: "card-body" }, [...overrideFields, lorasSection]);
   } else {
+    const castBox = el("div", { class: "loras-box cast-box" });
+    renderLoras(castBox, layer, "character");
+    const inferred = scenarioPeople(layer);
+    const peopleSelect = el("select", { class: "people-select" });
+    fillSelect(peopleSelect, [
+      { value: "0", label: `Auto (${inferred})` },
+      { value: "1", label: "1 person" },
+      { value: "2", label: "2 people" },
+      { value: "3", label: "3 people" },
+      { value: "4", label: "4+ people" },
+    ], String(Number(layer.participant_count) || 0));
+    peopleSelect.addEventListener("change", () => {
+      layer.participant_count = Number(peopleSelect.value) || 0;
+      renderLayerList("scenarios");
+    });
+    const castSection = el("div", { class: "cast-section" }, [
+      el("div", { class: "cast-heading row-between" }, [
+        el("div", {}, [
+          el("span", { class: "section-title", text: "Cast" }),
+          el("p", { class: "muted small section-help", text: "The primary base is person 1. Assign character LoRAs for anyone else." }),
+        ]),
+        el("div", { class: "row" }, [
+          peopleSelect,
+          el("button", {
+            class: "small",
+            text: "+ Character",
+            on: { click: () => {
+              layer.loras.push(newLora("character"));
+              renderLayerList("scenarios");
+            } },
+          }),
+        ]),
+      ]),
+      castBox,
+    ]);
     // Scenarios usually only add LoRAs. Tuck the checkpoint/prompt overrides
     // behind a toggle so the common case stays uncluttered -- but reveal them
     // by default when a loaded scenario actually sets one.
@@ -227,7 +371,7 @@ function layerCard(kind, layer, index) {
         },
       },
     });
-    body = el("div", { class: "card-body" }, [toggle, overridesBox, lorasSection]);
+    body = el("div", { class: "card-body" }, [castSection, lorasSection, toggle, overridesBox]);
   }
 
   const head = [];
@@ -252,6 +396,11 @@ function layerCard(kind, layer, index) {
       },
     });
     head.push(caret);
+    const leadLora = layer.loras.find((l) => l.file && l.role !== "character" && l.role !== "base");
+    const leadModel = leadLora ? loraByFile(leadLora.file) : null;
+    head.push(leadModel && leadModel.preview
+      ? el("img", { class: "scenario-cover", loading: "lazy", src: previewUrl(leadModel.file), alt: "" })
+      : el("div", { class: "scenario-cover scenario-cover-empty", text: String(index + 1).padStart(2, "0") }));
   }
 
   head.push(
@@ -266,6 +415,20 @@ function layerCard(kind, layer, index) {
       },
     })
   );
+  if (kind === "scenarios") {
+    const required = scenarioPeople(layer);
+    const assigned = castCount(layer);
+    const attention = scenarioNeedsAttention(layer);
+    head.push(el("span", {
+      class: `status-pill ${attention ? "attention" : "ready"}`,
+      text: attention ? "Needs review" : "Ready",
+    }));
+    head.push(el("span", {
+      class: `people-pill ${assigned < required ? "warning" : ""}`,
+      text: `${assigned}/${required} cast`,
+      title: assigned < required ? "Add character LoRAs to fill this scenario's cast" : "Assigned / required people",
+    }));
+  }
   // The base is a single, always-present set of params -- it can't be removed.
   if (kind !== "bases") {
     head.push(
@@ -283,7 +446,7 @@ function layerCard(kind, layer, index) {
     );
   }
 
-  return el("div", { class: "card" }, [
+  return el("article", { class: `card ${kind === "scenarios" ? "scenario-card" : "base-card"}`, dataset: { scenarioIndex: index } }, [
     el("div", { class: "card-head" }, head),
     body,
   ]);
@@ -299,8 +462,8 @@ function createTriggerEditor(initialValue, onInput) {
   const gutter = el("div", { class: "lora-gutter" }, [gutterInner]);
   const textarea = el("textarea", {
     class: "lora-triggers",
-    placeholder: "triggers",
-    rows: "2",
+    placeholder: "Edit the exact prompt text used for this LoRA…",
+    rows: "5",
     wrap: "off",
     value: initialValue,
   });
@@ -345,23 +508,45 @@ function createTriggerEditor(initialValue, onInput) {
   };
 }
 
-function renderLoras(box, layer) {
+function renderLoras(box, layer, role = "scenario") {
   clear(box);
-  if (layer.loras.length === 0) {
-    box.appendChild(el("p", { class: "empty small", text: "No LoRAs." }));
+  const matching = layer.loras
+    .map((lora, index) => ({ lora, index }))
+    .filter(({ lora }) => {
+      if (role === "base") return lora.role === "base" || !lora.role;
+      if (role === "character") return lora.role === "character";
+      return lora.role !== "character" && lora.role !== "base";
+    });
+  if (matching.length === 0) {
+    const copy = role === "character"
+      ? "No additional characters assigned."
+      : role === "base" ? "Add the primary character LoRA." : "Add a pose, outfit, or scene LoRA.";
+    box.appendChild(el("p", { class: "empty small", text: copy }));
     return;
   }
-  layer.loras.forEach((lora, i) => {
+  matching.forEach(({ lora, index: sourceIndex }) => {
     const triggerEditor = createTriggerEditor(lora.triggers, (v) => {
       lora.triggers = v;
+      lora.selected_prompts = [];
+      lora.reviewed = false;
+      updateReviewSummary();
     });
 
     const picker = createLoraPicker(lora.file, (file) => {
       lora.file = file;
-      // Auto-fill triggers from the chosen model (editable afterwards).
-      const t = loraTriggersFor(file);
+      const options = loraPromptOptions(file);
+      // Start with one coherent recipe instead of concatenating every metadata
+      // alternative. The review badge remains until the user confirms it.
+      lora.selected_prompts = options.length ? [options[0]] : [];
+      const t = options[0] || loraTriggersFor(file);
       lora.triggers = t;
-      triggerEditor.setValue(t);
+      lora.reviewed = false;
+      if (role === "base") {
+        renderLoras(box, layer, role);
+        updateReviewSummary();
+      } else {
+        renderLayerList("scenarios");
+      }
     });
 
     const weight = el("input", {
@@ -377,23 +562,88 @@ function renderLoras(box, layer) {
       },
     });
 
+    const model = loraByFile(lora.file);
+    const preview = model && model.preview
+      ? el("img", { class: "lora-preview", loading: "lazy", src: previewUrl(model.file), alt: prettyName(model.name) })
+      : el("div", { class: "lora-preview lora-preview-empty" }, [
+          el("span", { text: role === "character" || role === "base" ? "Character" : "Scenario" }),
+          el("small", { text: "No preview" }),
+        ]);
+
+    const options = lora.file ? loraPromptOptions(lora.file) : [];
+    let selected = Array.isArray(lora.selected_prompts) ? lora.selected_prompts : null;
+    if (!selected) selected = options.filter((option) => String(lora.triggers || "").includes(option));
+    const recipes = el("div", { class: "recipe-list" });
+    if (options.length) {
+      options.forEach((option, optionIndex) => {
+        const checked = selected.includes(option);
+        const checkbox = el("input", { type: "checkbox" });
+        checkbox.checked = checked;
+        checkbox.addEventListener("change", () => {
+          const current = new Set(Array.isArray(lora.selected_prompts) ? lora.selected_prompts : selected);
+          if (checkbox.checked) current.add(option);
+          else current.delete(option);
+          lora.selected_prompts = options.filter((x) => current.has(x));
+          lora.triggers = lora.selected_prompts.join(",\n");
+          lora.reviewed = false;
+          triggerEditor.setValue(lora.triggers);
+          reviewButton.textContent = "Mark reviewed";
+          reviewButton.classList.remove("reviewed");
+          updateReviewSummary();
+        });
+        recipes.appendChild(el("label", { class: `recipe-option ${checked ? "selected" : ""}` }, [
+          checkbox,
+          el("span", { class: "recipe-number", text: String(optionIndex + 1) }),
+          el("span", { class: "recipe-text", text: option }),
+        ]));
+        checkbox.addEventListener("change", () => checkbox.closest(".recipe-option")?.classList.toggle("selected", checkbox.checked));
+      });
+    } else {
+      recipes.appendChild(el("p", { class: "muted small", text: lora.file ? "No prompt recipes in metadata — edit the prompt below." : "Choose a LoRA to load prompt recipes." }));
+    }
+
+    const reviewButton = el("button", {
+      class: `small review-button ${lora.reviewed ? "reviewed" : ""}`,
+      text: lora.reviewed ? "Reviewed ✓" : "Mark reviewed",
+      on: { click: () => {
+        lora.reviewed = !lora.reviewed;
+        reviewButton.textContent = lora.reviewed ? "Reviewed ✓" : "Mark reviewed";
+        reviewButton.classList.toggle("reviewed", lora.reviewed);
+        if (role === "base") updateReviewSummary();
+        else renderLayerList("scenarios");
+      } },
+    });
+
     box.appendChild(
-      el("div", { class: "lora-row" }, [
-        picker,
-        weight,
-        triggerEditor.element,
+      el("div", { class: `lora-row lora-role-${role}` }, [
+        el("div", { class: "lora-visual" }, [preview]),
+        el("div", { class: "lora-content" }, [
+          el("div", { class: "lora-controls" }, [picker, field("Weight", weight), reviewButton,
         el("button", {
           class: "btn-danger small",
-          text: "x",
+          text: "Remove",
           title: "remove LoRA",
           on: {
             click: (ev) =>
               confirmDestructive(ev.currentTarget, () => {
-                layer.loras.splice(i, 1);
-                renderLoras(box, layer);
+                layer.loras.splice(sourceIndex, 1);
+                if (role === "base") {
+                  renderLoras(box, layer, role);
+                  updateReviewSummary();
+                } else {
+                  renderLayerList("scenarios");
+                }
               }),
           },
         }),
+          ]),
+          el("div", { class: "recipe-head row-between" }, [
+            el("span", { class: "sub-label", text: options.length > 1 ? `Prompt recipes · choose one or combine (${options.length})` : "Metadata prompt" }),
+            options.length > 1 ? el("span", { class: "attention-note", text: "Review alternatives" }) : null,
+          ]),
+          recipes,
+          field("Final prompt sent to ComfyUI", triggerEditor.element),
+        ]),
       ])
     );
   });
@@ -660,8 +910,8 @@ function assemblePipeline() {
   const e = state.editor;
   return {
     name: e.name,
-    bases: e.bases.map(layerToDict),
-    scenarios: e.scenarios.map(layerToDict),
+    bases: e.bases.map((layer) => layerToDict(layer, "base")),
+    scenarios: e.scenarios.map((layer) => layerToDict(layer, "scenario")),
   };
 }
 
@@ -675,8 +925,8 @@ function assembleRunPayload() {
   const r = state.runtime;
   const pipeline = {
     name: e.name,
-    bases: e.bases.map(layerToDict),
-    scenarios: e.scenarios.map(layerToDict),
+    bases: e.bases.map((layer) => layerToDict(layer, "base")),
+    scenarios: e.scenarios.map((layer) => layerToDict(layer, "scenario")),
     workflow_template: r.workflow_template,
     node_map: {
       prompt: r.node_map.prompt,
@@ -697,18 +947,22 @@ function assembleRunPayload() {
   return payload;
 }
 
-function layerToDict(layer) {
+function layerToDict(layer, defaultRole = "scenario") {
   return {
     name: layer.name,
     checkpoint: layer.checkpoint || null,
     prompt: layer.prompt || "",
     negative: layer.negative || "",
+    participant_count: Number(layer.participant_count) || 0,
     loras: layer.loras
       .filter((l) => l.file)
       .map((l) => ({
         file: l.file,
         weight: Number.isFinite(l.weight) ? l.weight : 1.0,
         triggers: l.triggers || "",
+        role: l.role || defaultRole,
+        reviewed: !!l.reviewed,
+        selected_prompts: Array.isArray(l.selected_prompts) ? l.selected_prompts : [],
       })),
   };
 }
@@ -863,10 +1117,16 @@ function normalizeLayer(l) {
     checkpoint: l.checkpoint || null,
     prompt: l.prompt || "",
     negative: l.negative || "",
+    participant_count: Number(l.participant_count) || 0,
     loras: (l.loras || []).map((x) => ({
       file: x.file || "",
       weight: x.weight == null ? 1.0 : x.weight,
       triggers: x.triggers || "",
+      // Missing role is the legacy format: it remains valid in either a base
+      // or a scenario and is interpreted from the containing layer.
+      role: x.role || null,
+      reviewed: !!x.reviewed,
+      selected_prompts: Array.isArray(x.selected_prompts) ? x.selected_prompts : null,
     })),
   };
 }
@@ -1385,6 +1645,11 @@ function wireEvents() {
   document
     .getElementById("toggle-all-scenarios")
     .addEventListener("click", () => setAllScenariosCollapsed(!allScenariosCollapsed()));
+  document.getElementById("review-filter").addEventListener("click", () => {
+    state.reviewOnly = !state.reviewOnly;
+    renderLayerList("scenarios");
+  });
+  document.getElementById("review-next").addEventListener("click", reviewNextScenario);
   document.querySelectorAll('input[name="seed-mode"]').forEach((r) =>
     r.addEventListener("change", () => {
       readRuntimeForm();

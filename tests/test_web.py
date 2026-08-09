@@ -25,6 +25,7 @@ _CANNED = {
             "base_model": "Illustrious",
             "tags": ["anime"],
             "triggers": "trig",
+            "prompt_options": ["trig"],
             "preview": True,
             "nsfw_level": 0,
         }

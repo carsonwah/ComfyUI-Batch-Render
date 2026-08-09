@@ -93,6 +93,7 @@ class ComfyDeps:
                     "base_model": meta.get("base_model", ""),
                     "tags": meta.get("tags", []),
                     "triggers": meta.get("triggers", ""),
+                    "prompt_options": meta.get("prompt_options", []),
                     "preview": bool(full and self._find_preview(str(full))),
                     "nsfw_level": meta.get("nsfw_level", 0),
                 }
@@ -156,39 +157,47 @@ class ComfyDeps:
         civitai = civitai if isinstance(civitai, dict) else {}
         tags = data.get("tags")
         tags = [str(t) for t in tags if t] if isinstance(tags, list) else []
+        prompt_options = cls._extract_prompt_options(data, civitai)
         return {
             "model_name": str(data.get("model_name") or ""),
             "base_model": str(data.get("base_model") or ""),
             "tags": tags,
-            "triggers": cls._extract_triggers(data, civitai),
+            "triggers": ",\n".join(prompt_options),
+            "prompt_options": prompt_options,
             "nsfw_level": int(data.get("preview_nsfw_level") or 0),
         }
 
     @staticmethod
-    def _extract_triggers(data: dict, civitai: dict) -> str:
-        """Pull trigger words, preferring LoRA Manager's ``civitai.trainedWords``."""
+    def _extract_prompt_options(data: dict, civitai: dict) -> list[str]:
+        """Return distinct prompt recipes from common metadata schemas.
+
+        ``trainedWords`` is frequently a list of complete alternatives (poses,
+        outfits, or scenes), not a list that should be concatenated blindly.
+        Keeping entries separate lets the editor present reviewable choices.
+        """
         words = civitai.get("trainedWords")
         if isinstance(words, list) and words:
-            # Keep each trainedWords entry on its own line so the user can see
-            # the distinct trigger-word sets and delete the ones they don't
-            # want. The ",\n" separator stays valid in the prompt (the newline
-            # is just whitespace to CLIP) if they leave several in place.
             parts = [_strip_lora_tags(str(w)) for w in words]
             parts = [p for p in parts if p]
             if parts:
-                return ",\n".join(parts)
+                return list(dict.fromkeys(parts))
         # Fall back to flat schemas other metadata tools use.
         for key in ("trigger_words", "triggerWords", "triggers", "activation_text"):
             val = data.get(key)
             if isinstance(val, list):
-                joined = ", ".join(p for p in (_strip_lora_tags(str(v)) for v in val) if p)
-                if joined:
-                    return joined
+                parts = [p for p in (_strip_lora_tags(str(v)) for v in val) if p]
+                if parts:
+                    return list(dict.fromkeys(parts))
             if isinstance(val, str):
                 stripped = _strip_lora_tags(val)
                 if stripped:
-                    return stripped
-        return ""
+                    return [stripped]
+        return []
+
+    @classmethod
+    def _extract_triggers(cls, data: dict, civitai: dict) -> str:
+        """Compatibility projection used by older API consumers."""
+        return ",\n".join(cls._extract_prompt_options(data, civitai))
 
     # -- target ------------------------------------------------------------- #
 

@@ -7,11 +7,13 @@
     <link rel="stylesheet" href="/brp_static/style.css" />
   </head>
   <body>
-    <header>
-      <div>
-        <h1>ComfyUI Batch Render</h1>
-        <p id="health" class="status">checking server&hellip;</p>
+    <header class="app-header">
+      <div class="brand-mark">BR</div>
+      <div class="brand-copy">
+        <h1>Batch Render Studio</h1>
+        <p class="header-kicker">Compose characters &times; scenarios with confidence</p>
       </div>
+      <p id="health" class="status header-status">checking server&hellip;</p>
     </header>
 
     <div class="layout">
@@ -68,19 +70,36 @@
             <input id="pl-name" type="text" placeholder="my-pipeline" />
           </label>
 
-          <section class="panel">
+          <section class="panel base-panel">
             <div class="row-between">
-              <h3>Base</h3>
+              <div>
+                <p class="eyebrow">Primary character</p>
+                <h3>Base identity</h3>
+              </div>
             </div>
+            <p class="muted small panel-intro">Always present in every render. Add appearance and identity LoRAs here.</p>
             <div id="bases-list" class="layer-list"></div>
           </section>
 
-          <section class="panel">
+          <section class="panel scenarios-panel">
             <div class="row-between">
-              <h3>Scenarios</h3>
+              <div>
+                <p class="eyebrow">Render matrix</p>
+                <h3>Scenario library</h3>
+              </div>
               <div class="row">
                 <button id="toggle-all-scenarios" class="small">Collapse all</button>
-                <button id="add-scenario" class="small">+ Scenario</button>
+                <button id="add-scenario" class="small primary">+ Add scenario</button>
+              </div>
+            </div>
+            <div class="review-toolbar">
+              <div>
+                <strong id="review-summary">Nothing to review</strong>
+                <span id="cast-summary" class="muted small"></span>
+              </div>
+              <div class="row">
+                <button id="review-filter" class="small" aria-pressed="false">Show needs review</button>
+                <button id="review-next" class="small">Review next</button>
               </div>
             </div>
             <div id="scenarios-list" class="layer-list"></div>
