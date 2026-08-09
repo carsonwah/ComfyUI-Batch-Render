@@ -285,6 +285,71 @@ function reviewNextScenario() {
 // pipeline, and is dropped automatically when a layer is removed.
 const collapsedLayers = new WeakSet();
 
+// Mirror patcher.combine_layers so the preview matches the prompt text that
+// will be written to ComfyUI. Empty LoRA rows are excluded because the run
+// payload drops them before the Python render pipeline sees the layer.
+function combinedPromptForScenario(scenario) {
+  const base = state.editor.bases[0] || blankLayer("base");
+  const selectedLoras = (layer) => layer.loras.filter((lora) => lora.file);
+  const joinNonempty = (parts) => parts
+    .filter((part) => part && String(part).trim())
+    .join(", ");
+
+  return {
+    positive: joinNonempty([
+      base.prompt,
+      ...selectedLoras(base).map((lora) => lora.triggers),
+      scenario.prompt,
+      ...selectedLoras(scenario).map((lora) => lora.triggers),
+    ]),
+    negative: joinNonempty([base.negative, scenario.negative]),
+  };
+}
+
+function openPromptPreview(scenario) {
+  const prompt = combinedPromptForScenario(scenario);
+  const dialog = el("dialog", {
+    class: "prompt-preview-dialog",
+    "aria-label": `Resulting prompt for ${scenario.name || "scenario"}`,
+  });
+  const close = () => {
+    try { dialog.close(); } catch (_error) {}
+    dialog.remove();
+  };
+  const promptBlock = (label, value) => el("section", { class: "prompt-preview-section" }, [
+    el("span", { class: "sub-label", text: label }),
+    el("pre", {
+      class: `prompt-preview-text ${value ? "" : "empty"}`,
+      text: value || "(empty)",
+    }),
+  ]);
+
+  dialog.appendChild(el("div", { class: "prompt-preview-shell" }, [
+    el("div", {}, [
+      el("h2", { text: `Resulting prompt · ${scenario.name || "Untitled scenario"}` }),
+      el("p", {
+        class: "muted small",
+        text: "Combined in render order from the base, its LoRAs, this scenario, and its LoRAs.",
+      }),
+    ]),
+    promptBlock("Positive prompt", prompt.positive),
+    promptBlock("Negative prompt", prompt.negative),
+    el("div", { class: "prompt-preview-actions" }, [
+      el("button", { class: "primary", text: "Close", on: { click: close } }),
+    ]),
+  ]));
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    close();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) close();
+  });
+  document.body.appendChild(dialog);
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
 function renderLayerList(kind) {
   const container = document.getElementById(`${kind}-list`);
   clear(container);
@@ -516,6 +581,12 @@ function layerCard(kind, layer, index) {
       class: `people-pill ${assigned < required ? "warning" : ""}`,
       text: `${assigned}/${required} cast`,
       title: assigned < required ? "Add character LoRAs to fill this scenario's cast" : "Assigned / required people",
+    }));
+    head.push(el("button", {
+      class: "small prompt-preview-button",
+      text: "Preview prompt",
+      title: "Preview the complete positive and negative prompts for this scenario",
+      on: { click: () => openPromptPreview(layer) },
     }));
   }
   // The base is a single, always-present set of params -- it can't be removed.
