@@ -302,6 +302,9 @@ button.small {
   padding: 1rem;
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
+.scenario-card {
+  padding: 0.7rem 0.8rem;
+}
 .scenario-card:hover { border-color: #3a4354; }
 .scenario-card.review-focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
 .card-head {
@@ -319,6 +322,16 @@ button.small {
   border-radius: 9px;
   border: 1px solid var(--border);
   background: var(--panel);
+}
+.scenario-card:has(.card-body:not([hidden])) .scenario-cover {
+  width: 42px;
+  height: 42px;
+}
+.scenario-card:has(.card-body[hidden]) {
+  padding-block: 0.45rem;
+}
+.scenario-card:has(.card-body[hidden]) .card-head {
+  margin-bottom: 0;
 }
 .scenario-cover-empty {
   display: grid;
@@ -355,7 +368,7 @@ button.small.caret {
 }
 
 .loras-section {
-  margin-top: 1rem;
+  margin-top: 0.7rem;
   border-top: 1px dashed var(--border);
   padding-top: 0.4rem;
 }
@@ -368,9 +381,9 @@ button.small.caret {
 .lora-row {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: stretch;
-  padding: 0.8rem;
+  padding: 0.6rem;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: rgba(10, 12, 17, 0.36);
@@ -399,7 +412,7 @@ button.small.caret {
   font-size: 0.75rem;
 }
 .lora-preview-empty small { opacity: 0.62; text-transform: none; letter-spacing: 0; }
-.lora-content { min-width: 0; display: flex; flex-direction: column; gap: 0.65rem; }
+.lora-content { min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .lora-controls {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) 5rem auto auto;
@@ -419,7 +432,7 @@ button.small.caret {
 }
 .lora-triggers {
   width: 100%;
-  min-height: 8rem;
+  min-height: 7rem;
   resize: vertical;
   font: inherit;
   line-height: 1.3;
@@ -576,6 +589,25 @@ button.small.caret {
   border: 1px dashed var(--border);
   border-radius: 12px;
 }
+.scenario-cast-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: -0.45rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.scenario-cast-hint > span {
+  flex: 0 0 auto;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  color: var(--ok);
+  border: 1px solid rgba(114, 214, 160, 0.3);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 .status-pill,
 .people-pill {
   flex: 0 0 auto;
@@ -589,26 +621,63 @@ button.small.caret {
 .people-pill.warning { color: var(--warning); border-color: rgba(241, 188, 105, 0.42); background: rgba(241, 188, 105, 0.08); }
 .status-pill.ready { color: var(--ok); border-color: rgba(114, 214, 160, 0.4); background: rgba(114, 214, 160, 0.07); }
 .cast-section {
-  margin: 0.6rem 0 1rem;
-  padding: 0.85rem;
+  margin: 0.45rem 0 0.7rem;
+  padding: 0.65rem 0.7rem;
   border: 1px solid rgba(114, 214, 160, 0.22);
   border-radius: 11px;
   background: rgba(114, 214, 160, 0.035);
 }
-.cast-heading { margin-bottom: 0.65rem; }
+.cast-heading { margin-bottom: 0.45rem; }
 .people-select { width: auto; min-width: 7.5rem; }
-.cast-box:has(.lora-row) { margin-top: 0.8rem; }
+.cast-box:has(.lora-row) { margin-top: 0.55rem; }
+.cast-guide {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(114, 214, 160, 0.2);
+  border-radius: 8px;
+  background: rgba(114, 214, 160, 0.045);
+}
+.cast-guide.needs-cast {
+  border-color: rgba(241, 188, 105, 0.36);
+  background: rgba(241, 188, 105, 0.07);
+}
+.cast-guide-icon {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  color: var(--ok);
+  border: 1px solid currentColor;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.needs-cast .cast-guide-icon { color: var(--warning); }
+.cast-guide strong { display: block; font-size: 0.79rem; }
+.cast-guide p { margin: 0.08rem 0; color: var(--fg); font-size: 0.78rem; line-height: 1.38; }
+.cast-guide small { color: var(--muted); font-size: 0.7rem; }
 
 /* Selectable metadata recipes */
-.recipe-head { min-height: 1.4rem; }
+.prompt-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+}
+.prompt-workbench > .field { margin: 0; }
+.recipe-panel { min-width: 0; }
+.recipe-head { min-height: 1.25rem; margin-bottom: 0.2rem; }
 .attention-note { color: var(--warning); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
-.recipe-list { display: flex; flex-direction: column; gap: 0.35rem; max-height: 15rem; overflow: auto; padding-right: 0.2rem; }
+.recipe-list { display: flex; flex-direction: column; gap: 0.25rem; height: 7rem; overflow: auto; padding-right: 0.2rem; }
 .recipe-option {
   display: grid;
   grid-template-columns: auto 1.65rem minmax(0, 1fr);
   gap: 0.45rem;
   align-items: start;
-  padding: 0.5rem;
+  padding: 0.38rem 0.45rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--muted);
@@ -628,7 +697,16 @@ button.small.caret {
   font-size: 0.7rem;
   font-weight: 750;
 }
-.recipe-text { font-size: 0.79rem; line-height: 1.42; }
+.recipe-text { font-size: 0.76rem; line-height: 1.35; }
+.scenario-card .override-toggle { margin-top: 0.45rem; }
+.scenario-card .overrides-box:not([hidden]) {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.55fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+}
+.scenario-card .overrides-box .field { margin-bottom: 0; }
+.scenario-card .overrides-box .prompt-editor { min-height: 7rem; }
 .zone-intro {
   margin: 0;
 }
@@ -701,6 +779,9 @@ button.small.caret {
   .lora-controls { grid-template-columns: minmax(0, 1fr) 5rem; }
   .lora-controls .review-button,
   .lora-controls .btn-danger { width: 100%; }
+  .prompt-workbench,
+  .scenario-card .overrides-box:not([hidden]) { grid-template-columns: 1fr; }
+  .recipe-list { height: auto; max-height: 10rem; }
 }
 
 @media (min-width: 761px) and (max-width: 1080px) {
@@ -708,4 +789,7 @@ button.small.caret {
   .lora-row { grid-template-columns: 160px minmax(0, 1fr); }
   .lora-preview { height: 220px; }
   .lora-controls { grid-template-columns: minmax(140px, 1fr) 5rem; }
+  .prompt-workbench,
+  .scenario-card .overrides-box:not([hidden]) { grid-template-columns: 1fr; }
+  .recipe-list { height: auto; max-height: 10rem; }
 }

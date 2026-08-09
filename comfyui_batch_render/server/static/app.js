@@ -179,6 +179,62 @@ function castCount(layer) {
   return 1 + layer.loras.filter((l) => l.role === "character" && l.file).length;
 }
 
+function castGuidance(layer) {
+  const required = scenarioPeople(layer);
+  const assigned = castCount(layer);
+  const missing = Math.max(0, required - assigned);
+  if (missing > 0) {
+    return {
+      required, assigned, missing,
+      title: "Add the missing cast",
+      text: `${required} people detected. The base fills person 1 — click “+ Character” ${missing === 1 ? "once" : `${missing} times`} and choose a character LoRA for ${missing === 1 ? "the other person" : "each additional person"}.`,
+    };
+  }
+  if (required > 1) {
+    return {
+      required, assigned, missing,
+      title: "How cast works",
+      text: `Cast complete: the base plus ${required - 1} additional character${required === 2 ? "" : "s"}.`,
+    };
+  }
+  return {
+    required, assigned, missing,
+    title: "How cast works",
+    text: "Solo detected. The base supplies the only character; no additional character LoRA is needed.",
+  };
+}
+
+function refreshScenarioCardStatus(layer) {
+  const index = state.editor.scenarios.indexOf(layer);
+  if (index < 0) return;
+  const card = document.querySelector(`[data-scenario-index="${index}"]`);
+  if (!card) return;
+  const guidance = castGuidance(layer);
+  const attention = scenarioNeedsAttention(layer);
+  const status = card.querySelector(".status-pill");
+  if (status) {
+    status.className = `status-pill ${attention ? "attention" : "ready"}`;
+    status.textContent = attention ? "Needs review" : "Ready";
+  }
+  const people = card.querySelector(".people-pill");
+  if (people) {
+    people.className = `people-pill ${guidance.missing ? "warning" : ""}`;
+    people.textContent = `${guidance.assigned}/${guidance.required} cast`;
+    people.title = guidance.missing
+      ? "Add character LoRAs to fill this scenario's cast"
+      : "Assigned / required people";
+  }
+  const guide = card.querySelector(".cast-guide");
+  if (guide) {
+    guide.className = `cast-guide ${guidance.missing ? "needs-cast" : "cast-ready"}`;
+    guide.querySelector(".cast-guide-icon").textContent = guidance.missing ? "!" : "✓";
+    guide.querySelector("strong").textContent = guidance.title;
+    guide.querySelector("p").textContent = guidance.text;
+  }
+  const autoOption = card.querySelector('.people-select option[value="0"]');
+  if (autoOption) autoOption.textContent = `Auto (${scenarioPeople(layer)})`;
+}
+
 function scenarioNeedsAttention(layer) {
   const unreviewed = layer.loras.some((l) => l.file && !l.reviewed);
   return unreviewed || castCount(layer) < scenarioPeople(layer);
@@ -325,11 +381,23 @@ function layerCard(kind, layer, index) {
       layer.participant_count = Number(peopleSelect.value) || 0;
       renderLayerList("scenarios");
     });
+    const guidance = castGuidance(layer);
+    const castGuide = el("div", {
+      class: `cast-guide ${guidance.missing ? "needs-cast" : "cast-ready"}`,
+      role: "note",
+    }, [
+      el("span", { class: "cast-guide-icon", text: guidance.missing ? "!" : "✓" }),
+      el("div", {}, [
+        el("strong", { text: guidance.title }),
+        el("p", { text: guidance.text }),
+        el("small", { text: "Auto reads person tokens from the selected prompt. If it guessed wrong, change the people dropdown." }),
+      ]),
+    ]);
     const castSection = el("div", { class: "cast-section" }, [
       el("div", { class: "cast-heading row-between" }, [
         el("div", {}, [
           el("span", { class: "section-title", text: "Cast" }),
-          el("p", { class: "muted small section-help", text: "The primary base is person 1. Assign character LoRAs for anyone else." }),
+          el("p", { class: "muted small section-help", text: "Base = person 1 · each added Character = one more person." }),
         ]),
         el("div", { class: "row" }, [
           peopleSelect,
@@ -343,6 +411,7 @@ function layerCard(kind, layer, index) {
           }),
         ]),
       ]),
+      castGuide,
       castBox,
     ]);
     // Scenarios usually only add LoRAs. Tuck the checkpoint/prompt overrides
@@ -530,6 +599,7 @@ function renderLoras(box, layer, role = "scenario") {
       lora.selected_prompts = [];
       lora.reviewed = false;
       updateReviewSummary();
+      if (role !== "base") refreshScenarioCardStatus(layer);
     });
 
     const picker = createLoraPicker(lora.file, (file) => {
@@ -590,6 +660,7 @@ function renderLoras(box, layer, role = "scenario") {
           reviewButton.textContent = "Mark reviewed";
           reviewButton.classList.remove("reviewed");
           updateReviewSummary();
+          if (role !== "base") refreshScenarioCardStatus(layer);
         });
         recipes.appendChild(el("label", { class: `recipe-option ${checked ? "selected" : ""}` }, [
           checkbox,
@@ -637,12 +708,16 @@ function renderLoras(box, layer, role = "scenario") {
           },
         }),
           ]),
-          el("div", { class: "recipe-head row-between" }, [
-            el("span", { class: "sub-label", text: options.length > 1 ? `Prompt recipes · choose one or combine (${options.length})` : "Metadata prompt" }),
-            options.length > 1 ? el("span", { class: "attention-note", text: "Review alternatives" }) : null,
+          el("div", { class: "prompt-workbench" }, [
+            el("div", { class: "recipe-panel" }, [
+              el("div", { class: "recipe-head row-between" }, [
+                el("span", { class: "sub-label", text: options.length > 1 ? `Prompt recipes · choose one or combine (${options.length})` : "Metadata prompt" }),
+                options.length > 1 ? el("span", { class: "attention-note", text: "Review alternatives" }) : null,
+              ]),
+              recipes,
+            ]),
+            field("Final prompt sent to ComfyUI", triggerEditor.element),
           ]),
-          recipes,
-          field("Final prompt sent to ComfyUI", triggerEditor.element),
         ]),
       ])
     );
@@ -1055,6 +1130,9 @@ async function loadPipeline(name) {
   try {
     const data = await api.getPipeline(name);
     state.editor = normalizeLoaded(data.pipeline || {});
+    // Long scenario libraries open as compact visual rows. The user can scan
+    // thumbnails first, then expand only the scenario they want to edit.
+    state.editor.scenarios.forEach((layer) => collapsedLayers.add(layer));
     state.loadedName = data.pipeline && data.pipeline.name ? data.pipeline.name : name;
     // Run-time config (workflow / slots / seed) and any canvas capture are
     // independent of the pipeline -- leave them untouched on load.
@@ -1075,6 +1153,7 @@ async function clonePipeline(name) {
     const loaded = normalizeLoaded(data.pipeline || {});
     loaded.name = uniquePipelineName(loaded.name);
     state.editor = loaded;
+    state.editor.scenarios.forEach((layer) => collapsedLayers.add(layer));
     state.loadedName = null;
     renderPipelineForm();
     setEditorStatus(`cloned "${name}" -> "${loaded.name}" (unsaved)`, "ok");
