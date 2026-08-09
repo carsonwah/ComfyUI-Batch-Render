@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import sys
+from types import SimpleNamespace
+
 from comfyui_batch_render.server.bindings import ComfyDeps, _strip_lora_tags
 
 
@@ -52,3 +56,27 @@ def test_extract_example_prompts_from_civitai_and_custom_images():
         "second example",
         "third example",
     ]
+
+
+def test_list_models_includes_example_prompts(tmp_path, monkeypatch):
+    model = tmp_path / "character.safetensors"
+    model.write_bytes(b"")
+    model.with_suffix(".metadata.json").write_text(
+        json.dumps(
+            {
+                "civitai": {
+                    "images": [{"meta": {"prompt": "example from metadata"}}]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    folder_paths = SimpleNamespace(
+        get_filename_list=lambda kind: [model.name],
+        get_full_path=lambda kind, file: str(model),
+    )
+    monkeypatch.setitem(sys.modules, "folder_paths", folder_paths)
+
+    listed = ComfyDeps().list_models("loras")
+
+    assert listed[0]["example_prompts"] == ["example from metadata"]

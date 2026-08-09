@@ -94,6 +94,7 @@ class ComfyDeps:
                     "tags": meta.get("tags", []),
                     "triggers": meta.get("triggers", ""),
                     "prompt_options": meta.get("prompt_options", []),
+                    "example_prompts": meta.get("example_prompts", []),
                     "preview": bool(full and self._find_preview(str(full))),
                     "nsfw_level": meta.get("nsfw_level", 0),
                 }

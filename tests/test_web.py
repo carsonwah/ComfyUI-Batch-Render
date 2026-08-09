@@ -26,6 +26,7 @@ _CANNED = {
             "tags": ["anime"],
             "triggers": "trig",
             "prompt_options": ["trig"],
+            "example_prompts": ["example prompt"],
             "preview": True,
             "nsfw_level": 0,
         }
