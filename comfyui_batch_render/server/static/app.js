@@ -1123,7 +1123,12 @@ function assembleRunPayload() {
   const pipeline = {
     name: e.name,
     bases: e.bases.map((layer) => layerToDict(layer, "base")),
-    scenarios: e.scenarios.map((layer) => layerToDict(layer, "scenario")),
+    // Disabled scenarios remain in the saved pipeline, but a run payload only
+    // contains active work. This also protects runs when ComfyUI has not been
+    // restarted after updating the plugin's Python backend.
+    scenarios: e.scenarios
+      .filter((layer) => layer.enabled !== false)
+      .map((layer) => layerToDict(layer, "scenario")),
     workflow_template: r.workflow_template,
     node_map: {
       prompt: r.node_map.prompt,

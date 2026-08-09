@@ -402,6 +402,20 @@ async def _run(request: web.Request) -> web.Response:
             status=400,
         )
 
+    # Keep disabled scenarios in persisted pipelines, but remove them at the
+    # HTTP execution boundary.  ``expand_jobs`` enforces the same rule for CLI
+    # and library callers; doing it here as well prevents a run dependency from
+    # accidentally receiving inactive work.
+    scenarios = pipeline.get("scenarios")
+    if isinstance(scenarios, list):
+        pipeline = dict(pipeline)
+        pipeline["scenarios"] = [
+            scenario
+            for scenario in scenarios
+            if not isinstance(scenario, dict)
+            or scenario.get("enabled", True) is not False
+        ]
+
     run_id = await _runs(request).start(_deps(request), pipeline, template)
     return web.json_response({"run_id": run_id}, status=202)
 

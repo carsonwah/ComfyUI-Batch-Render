@@ -46,6 +46,7 @@ class FakeDeps:
         self.recapture_ok = recapture_ok
         self.recapture_calls = 0
         self.preview = preview
+        self.started_pipelines = []
 
     def list_models(self, kind: str) -> list[dict]:
         return _CANNED[kind]
@@ -64,6 +65,7 @@ class FakeDeps:
         return self.recapture_ok
 
     async def start_run(self, pipeline, template, on_progress):
+        self.started_pipelines.append(pipeline)
         for i in (1, 2):
             await on_progress({"done": i, "total": 2, "job": {"index": i - 1}})
             await asyncio.sleep(0)
@@ -345,14 +347,27 @@ def test_request_recapture_unreachable(tmp_path):
 
 
 def test_run_and_websocket_progress(tmp_path):
+    store = Store(tmp_path / "cfg")
+    deps = FakeDeps(store)
+
     async def go():
-        async with _Server(_build(tmp_path)) as srv, aiohttp.ClientSession() as sess:
+        async with _Server(create_app(deps)) as srv, aiohttp.ClientSession() as sess:
             async with sess.ws_connect(srv.url("/ws/brp-progress")) as ws:
                 snap = await ws.receive_json()
                 assert snap["type"] == "snapshot"
 
                 async with sess.post(
-                    srv.url("/api/brp/run"), json={"pipeline": {"name": "p"}}
+                    srv.url("/api/brp/run"),
+                    json={
+                        "pipeline": {
+                            "name": "p",
+                            "scenarios": [
+                                {"name": "enabled", "enabled": True},
+                                {"name": "disabled", "enabled": False},
+                                {"name": "legacy"},
+                            ],
+                        }
+                    },
                 ) as r:
                     assert r.status == 202
                     run_id = (await r.json())["run_id"]
@@ -365,6 +380,11 @@ def test_run_and_websocket_progress(tmp_path):
                         assert msg["manifest"] == _FAKE_MANIFEST
                         break
                 assert seen.count("progress") == 2
+
+            assert [s["name"] for s in deps.started_pipelines[0]["scenarios"]] == [
+                "enabled",
+                "legacy",
+            ]
 
             # Status endpoint shows the completed run.
             async with sess.get(srv.url(f"/api/brp/runs/{run_id}")) as r:
